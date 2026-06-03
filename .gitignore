@@ -1,0 +1,9 @@
+# Ignore the secrets file
+secrets.h
+
+# Ignore build directories and binaries
+build/
+*.bin
+*.elf
+*.hex
+.vscode/
