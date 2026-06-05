@@ -17,7 +17,7 @@
 #include "secrets.h"
 
 // =============================================
-//   PROGMEM AEROSPACE WEB INTERFACE
+//   PROGMEM AEROSPACE DASHBOARD
 // =============================================
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
@@ -76,6 +76,7 @@ const char index_html[] PROGMEM = R"rawliteral(
     <div class="status-badge status-mode"    id="modeBadge">--</div>
   </div>
   <div class="container">
+
     <div class="panel">
       <div class="panel-header">Live Telemetry</div>
       <div class="telemetry-grid">
@@ -96,6 +97,7 @@ const char index_html[] PROGMEM = R"rawliteral(
       <div class="info-row"><span class="info-key">System Uptime</span><span class="info-val" id="uptime">--</span></div>
       <div class="info-row" style="border:none;margin-bottom:0"><span class="info-key">Free Memory</span><span class="info-val" id="ram">-- KB</span></div>
     </div>
+
     <div class="panel">
       <div class="panel-header">Tactical Radar</div>
       <div class="radar-wrapper">
@@ -107,6 +109,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         <div></div><button onclick="nudge(0,-5)">▼</button><div></div>
       </div>
     </div>
+
     <div class="panel">
       <div class="panel-header">Orbital Database — SGP4</div>
       <div class="info-row" style="border:none;margin-bottom:12px;">
@@ -125,11 +128,15 @@ const char index_html[] PROGMEM = R"rawliteral(
       <select id="sat-select" size="4" style="height:80px"><option>Awaiting Database...</option></select>
       <button onclick="pushTLE()" id="btn-push">2. UPLOAD TLE TO HARDWARE</button>
     </div>
+
     <div class="panel">
       <div class="panel-header">Pass Log</div>
       <button onclick="loadPassLog()" style="margin-bottom:12px">REFRESH PASS LOG</button>
-      <div id="passLogBody" style="font-family:monospace;font-size:0.8rem;color:#94a3b8">No passes logged yet.</div>
+      <div id="passLogBody" style="font-family:monospace;font-size:0.8rem;color:#94a3b8">
+        No passes logged yet.
+      </div>
     </div>
+
   </div>
 <script>
   let currentAz=0, currentEl=0, targetAz=0, targetEl=0;
@@ -333,6 +340,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 #define TFT_CS   15
 #define TFT_DC    2
 #define TFT_RST   4
+// Hardware SPI: MOSI=23, SCK=18, MISO=19
 
 #define AZ_STEP  32
 #define AZ_DIR   14
@@ -341,7 +349,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 #define ENABLE_PIN 25
 
 // =============================================
-//   TFT COLOURS Matrix
+//   TFT COLOURS
 // =============================================
 #define C_BLACK   0x0000
 #define C_WHITE   0xFFFF
@@ -352,8 +360,8 @@ const char index_html[] PROGMEM = R"rawliteral(
 #define C_RED     0xF800
 #define C_BLUE    0x001F
 #define C_DGRAY   0x2945 
-#define C_MGRAY   0x7BEF 
-#define C_DBLUE   0x0010 
+#define C_MGRAY   0x4A69 
+#define C_DBLUE   0x0811 
 
 // =============================================
 //   HARDWARE OBJECTS
@@ -371,13 +379,12 @@ Preferences     prefs;
 Sgp4            sat;
 
 // =============================================
-//   STATE CONFIG (VOLATILE MUTEX PROTECTED)
+//   STATE VARIABLES (VOLATILE FOR DUAL-CORE SYNC)
 // =============================================
 char tleLine1[70] = "";
 char tleLine2[70] = "";
 char satName[25]  = "NO SAT";
 volatile bool tleLoaded = false;
-volatile bool spiLock = false; // Core desync lock flag
 
 volatile float currentAz = 0.0, currentEl = 0.0;
 volatile float targetAz  = 0.0, targetEl  = 0.0;
@@ -397,9 +404,9 @@ volatile float  satDistance = 0.0;
 unsigned long lastDopplerTime = 0;
 unsigned long lastSGP4Update = 0;
 
-volatile time_t nextAosTime = 0;
-volatile time_t nextLosTime = 0;
-volatile float  nextMaxEl   = 0.0;
+time_t nextAosTime = 0;
+time_t nextLosTime = 0;
+float  nextMaxEl   = 0.0;
 
 struct PassLog { char sat[25]; char time[20]; float maxEl; };
 PassLog passLog[10];
@@ -410,10 +417,10 @@ char  passStartBuf[20] = "";
 
 struct PathPoint { float az, el; };
 PathPoint globalPath[45];
-volatile int globalPathLen  = 0;
+int globalPathLen  = 0;
 unsigned long lastPathCalc = 0;
 
-// Dynamic Cache
+// TFT Redraw Tracking Cache
 float  prev_cAz = -999, prev_cEl = -999;
 float  prev_tAz = -999, prev_tEl = -999;
 float  prev_doppler = -999;
@@ -432,6 +439,9 @@ int prev_satX = -1, prev_satY = -1;
 
 TaskHandle_t Core0Task;
 
+// =============================================
+//   FORWARD DECLARATIONS
+// =============================================
 void parseEasyComm(String cmd);
 void runSGP4();
 void calculatePathPrediction();
@@ -440,6 +450,9 @@ void tftUpdateDynamic();
 void tftRadarUpdate();
 void setupWebServer();
 
+// =============================================
+//   MAIDENHEAD → LAT/LON
+// =============================================
 void maidenheadToLatLon(String grid, double &lat, double &lon) {
   grid.toUpperCase();
   if (grid.length() < 4) return;
@@ -454,6 +467,9 @@ void maidenheadToLatLon(String grid, double &lat, double &lon) {
   lon += 1.0; lat += 0.5;
 }
 
+// =============================================
+//   BUILD TELEMETRY JSON
+// =============================================
 String buildTelemetryJson() {
   StaticJsonDocument<512> doc;
   doc["tAz"]      = (float)targetAz;
@@ -475,48 +491,47 @@ String buildTelemetryJson() {
 }
 
 // =============================================
-//   TFT — STATIC INTERFACE FRAME
+//   TFT — DRAW STATIC FRAME
 // =============================================
 void tftDrawStaticFrame() {
   tft.fillScreen(C_BLACK);
   
-  tft.fillRect(0, 0, 240, 24, C_DBLUE);
+  tft.fillRect(0, 0, 240, 25, C_DBLUE);
   tft.setTextColor(C_CYAN); tft.setTextSize(1);
-  tft.setCursor(6, 8);
-  tft.print("AEROSPACE TRACKING SYSTEM");
-  tft.drawFastHLine(0, 24, 240, C_DGRAY);
+  tft.setCursor(5, 8);
+  tft.print("AEROSPACE CMD TELEMETRY");
+  tft.drawFastHLine(0, 25, 240, C_DGRAY);
 
+  // Re-designed Header Layout for AZ/EL clarity
   tft.setTextColor(C_MGRAY); tft.setTextSize(1);
-  tft.setCursor(6, 32);   tft.print("TARGET LINK:");
+  tft.setCursor(5, 30);   tft.print("TARGET:");
   
-  tft.setCursor(6, 54);   tft.print("CURR AZ:");
-  tft.setCursor(124, 54); tft.print("CURR EL:");
+  tft.setCursor(5, 55);   tft.print("CUR AZ:");
+  tft.setCursor(120, 55); tft.print("CUR EL:");
   
-  tft.setCursor(6, 78);   tft.print("TGT  AZ:");
-  tft.setCursor(124, 78); tft.print("TGT  EL:");
+  tft.setCursor(5, 85);   tft.print("TGT AZ:");
+  tft.setCursor(120, 85); tft.print("TGT EL:");
   
-  tft.drawFastHLine(0, 102, 240, C_DGRAY);
+  tft.drawFastHLine(0, 110, 240, C_DGRAY);
   
-  tft.setCursor(6, 108);  tft.print("MODE:");
-  tft.setCursor(6, 118);  tft.print("NTP :");
-  tft.setCursor(6, 128);  tft.print("L4S :");
-  tft.setCursor(124, 108); tft.print("RSSI:");
-  tft.setCursor(124, 118); tft.print("RAM :");
-  tft.setCursor(124, 128); tft.print("UP  :");
-  tft.setCursor(6, 138);  tft.print("DOPP:");
-  tft.setCursor(124, 138); tft.print("DIST:");
+  tft.setCursor(5, 115);  tft.print("MODE:");
+  tft.setCursor(5, 127);  tft.print("NTP:");
+  tft.setCursor(5, 139);  tft.print("L4S:");
+  tft.setCursor(120, 115); tft.print("RSSI:");
+  tft.setCursor(120, 127); tft.print("RAM:");
+  tft.setCursor(120, 139); tft.print("UP:");
+  tft.setCursor(5, 151);  tft.print("DOPP:");
+  tft.setCursor(120, 151); tft.print("DIST:");
 
-  tft.drawFastHLine(0, 152, 240, C_DGRAY);
+  tft.drawFastHLine(0, 165, 240, C_DGRAY);
   
   tft.setTextColor(C_CYAN); 
-  tft.setCursor(6, 158); tft.print("AOS:");
-  tft.setCursor(130, 158); tft.print("MAX-EL:");
-  tft.setCursor(6, 172); tft.print("LOS:");
-  tft.setCursor(130, 172); tft.print("T-MINUS:");
+  tft.setCursor(5, 170); tft.print("NEXT AOS (UTC):");
+  tft.setCursor(150, 170); tft.print("MAX EL:");
+  tft.setCursor(5, 190); tft.print("NEXT LOS (UTC):");
+  tft.setCursor(150, 190); tft.print("T-MINUS:");
 
-  tft.drawFastHLine(0, 188, 240, C_DGRAY);
-
-  int cx=120, cy=252, r=50;
+  int cx=120, cy=265, r=50;
   tft.drawCircle(cx, cy, r,    C_DGRAY);
   tft.drawCircle(cx, cy, r*2/3, C_DGRAY);
   tft.drawCircle(cx, cy, r*1/3, C_DGRAY);
@@ -525,32 +540,31 @@ void tftDrawStaticFrame() {
   
   tft.setTextColor(C_CYAN); tft.setTextSize(1);
   tft.setCursor(cx-3, cy-r-10); tft.print("N");
-  tft.setCursor(cx-3, cy+r+3);  tft.print("S");
-  tft.setCursor(cx+r+5, cy-3);  tft.print("E");
-  tft.setCursor(cx-r-10, cy-3);  tft.print("W");
+  tft.setCursor(cx-3, cy+r+2);  tft.print("S");
+  tft.setCursor(cx+r+3, cy-3);  tft.print("E");
+  tft.setCursor(cx-r-9, cy-3);  tft.print("W");
 }
 
 // =============================================
-//   TFT — DYNAMIC ENGINE TERMINAL
+//   TFT — DYNAMIC TEXT UPDATE
 // =============================================
 void tftUpdateDynamic() {
-  if(spiLock) return;
   char buf[32]; 
 
   if (strcmp(satName, prev_sat) != 0) {
-    tft.fillRect(78, 32, 155, 12, C_BLACK);
+    tft.fillRect(5, 40, 230, 15, C_BLACK);
     tft.setTextColor(C_YELLOW); tft.setTextSize(1);
-    tft.setCursor(78, 32);
-    snprintf(buf, sizeof(buf), "%.20s", satName); 
+    tft.setCursor(5, 40);
+    snprintf(buf, sizeof(buf), "%.25s", satName); 
     tft.print(buf);
     strncpy(prev_sat, satName, 24);
   }
 
   float cAz = currentAz;
   if (fabsf(cAz - prev_cAz) > 0.05f) {
-    tft.fillRect(56, 54, 62, 16, C_BLACK);
+    tft.fillRect(55, 53, 60, 16, C_BLACK);
     tft.setTextColor(C_WHITE); tft.setTextSize(2);
-    tft.setCursor(56, 54);
+    tft.setCursor(55, 53);
     snprintf(buf, sizeof(buf), "%05.1f", (double)cAz);
     tft.print(buf);
     prev_cAz = cAz;
@@ -558,9 +572,9 @@ void tftUpdateDynamic() {
 
   float cEl = currentEl;
   if (fabsf(cEl - prev_cEl) > 0.05f) {
-    tft.fillRect(174, 54, 60, 16, C_BLACK);
+    tft.fillRect(170, 53, 60, 16, C_BLACK);
     tft.setTextColor(C_WHITE); tft.setTextSize(2);
-    tft.setCursor(174, 54);
+    tft.setCursor(170, 53);
     snprintf(buf, sizeof(buf), "%04.1f", (double)cEl);
     tft.print(buf);
     prev_cEl = cEl;
@@ -568,9 +582,9 @@ void tftUpdateDynamic() {
 
   float tAz = targetAz;
   if (fabsf(tAz - prev_tAz) > 0.05f) {
-    tft.fillRect(56, 78, 62, 16, C_BLACK);
-    tft.setTextColor(C_GREEN); tft.setTextSize(2);
-    tft.setCursor(56, 78);
+    tft.fillRect(55, 83, 60, 16, C_BLACK);
+    tft.setTextColor(C_YELLOW); tft.setTextSize(2);
+    tft.setCursor(55, 83);
     snprintf(buf, sizeof(buf), "%05.1f", (double)tAz);
     tft.print(buf);
     prev_tAz = tAz;
@@ -578,9 +592,9 @@ void tftUpdateDynamic() {
 
   float tEl = targetEl;
   if (fabsf(tEl - prev_tEl) > 0.05f) {
-    tft.fillRect(174, 78, 60, 16, C_BLACK);
-    tft.setTextColor(C_GREEN); tft.setTextSize(2);
-    tft.setCursor(174, 78);
+    tft.fillRect(170, 83, 60, 16, C_BLACK);
+    tft.setTextColor(C_YELLOW); tft.setTextSize(2);
+    tft.setCursor(170, 83);
     snprintf(buf, sizeof(buf), "%04.1f", (double)tEl);
     tft.print(buf);
     prev_tEl = tEl;
@@ -588,51 +602,51 @@ void tftUpdateDynamic() {
 
   int modeVal = onboardMode ? 1 : 0;
   if (modeVal != prev_mode) {
-    tft.fillRect(42, 108, 75, 9, C_BLACK);
+    tft.fillRect(40, 115, 75, 9, C_BLACK);
     tft.setTextColor(onboardMode ? C_CYAN : C_YELLOW);
-    tft.setTextSize(1); tft.setCursor(42, 108);
-    tft.print(onboardMode ? "SGP4 INT" : "L4S EXT");
+    tft.setTextSize(1); tft.setCursor(40, 115);
+    tft.print(onboardMode ? "SGP4" : "EXT");
     prev_mode = modeVal;
   }
   
   if (ntpSynced != prev_ntp) {
-    tft.fillRect(42, 118, 75, 9, C_BLACK);
+    tft.fillRect(40, 127, 75, 9, C_BLACK);
     tft.setTextColor(ntpSynced ? C_GREEN : C_RED);
-    tft.setTextSize(1); tft.setCursor(42, 118);
-    tft.print(ntpSynced ? "ONLINE" : "OFFLINE");
+    tft.setTextSize(1); tft.setCursor(40, 127);
+    tft.print(ntpSynced ? "SYNCED" : "NO SYNC");
     prev_ntp = ntpSynced;
   }
   
   bool l4sNow = (tcpClient && tcpClient.connected());
   if (l4sNow != prev_l4s) {
-    tft.fillRect(42, 128, 75, 9, C_BLACK);
+    tft.fillRect(40, 139, 75, 9, C_BLACK);
     tft.setTextColor(l4sNow ? C_GREEN : C_MGRAY);
-    tft.setTextSize(1); tft.setCursor(42, 128);
-    tft.print(l4sNow ? "ACTIVE" : "IDLE");
+    tft.setTextSize(1); tft.setCursor(40, 139);
+    tft.print(l4sNow ? "LINKED" : "WAITING");
     prev_l4s = l4sNow;
   }
   
   int rssiNow = WiFi.RSSI();
   if (abs(rssiNow - prev_rssi) > 2) {
-    tft.fillRect(160, 108, 75, 9, C_BLACK);
+    tft.fillRect(155, 115, 80, 9, C_BLACK);
     tft.setTextColor(C_MGRAY); tft.setTextSize(1);
-    tft.setCursor(160, 108);
+    tft.setCursor(155, 115);
     snprintf(buf, sizeof(buf), "%d dBm", rssiNow);
     tft.print(buf);
     prev_rssi = rssiNow;
   }
   
-  tft.fillRect(160, 118, 75, 9, C_BLACK);
+  tft.fillRect(155, 127, 80, 9, C_BLACK);
   tft.setTextColor(C_MGRAY); tft.setTextSize(1);
-  tft.setCursor(160, 118);
+  tft.setCursor(155, 127);
   snprintf(buf, sizeof(buf), "%u KB", ESP.getFreeHeap() / 1024);
   tft.print(buf);
 
   unsigned long up = millis()/1000;
   if (up/10 != prev_uptime/10) { 
-    tft.fillRect(160, 128, 75, 9, C_BLACK);
+    tft.fillRect(155, 139, 80, 9, C_BLACK);
     tft.setTextColor(C_MGRAY); tft.setTextSize(1);
-    tft.setCursor(160, 128);
+    tft.setCursor(155, 139);
     snprintf(buf, sizeof(buf), "%luh %lum", up/3600, (up%3600)/60);
     tft.print(buf);
     prev_uptime = up;
@@ -640,76 +654,76 @@ void tftUpdateDynamic() {
   
   float doppler = dopplerFreq;
   if (fabsf(doppler - prev_doppler) > 50.0f) {
-    tft.fillRect(42, 138, 75, 9, C_BLACK);
+    tft.fillRect(40, 151, 75, 9, C_BLACK);
     tft.setTextColor(doppler >= 0 ? C_GREEN : C_ORANGE);
-    tft.setTextSize(1); tft.setCursor(42, 138);
-    snprintf(buf, sizeof(buf), "%+dHz", (int)doppler);
+    tft.setTextSize(1); tft.setCursor(40, 151);
+    snprintf(buf, sizeof(buf), "%+d Hz", (int)doppler);
     tft.print(buf);
     prev_doppler = doppler;
   }
   
   float dist = satDistance;
   if (fabsf(dist - prev_dist) > 10.0f) {
-    tft.fillRect(160, 138, 75, 9, C_BLACK);
+    tft.fillRect(155, 151, 80, 9, C_BLACK);
     tft.setTextColor(C_MGRAY); tft.setTextSize(1);
-    tft.setCursor(160, 138);
-    snprintf(buf, sizeof(buf), "%dkm", (int)dist);
+    tft.setCursor(155, 151);
+    snprintf(buf, sizeof(buf), "%d km", (int)dist);
     tft.print(buf);
     prev_dist = dist;
   }
 
-  // Countdown computation
+  // PASS PREDICTION COUNTDOWN
   unsigned long nowEpoch = timeClient.getEpochTime();
-  long countdown = (long)(nextAosTime - nowEpoch);
+  long countdown = nextAosTime - nowEpoch;
   
   if (countdown != prev_countdown) {
-    tft.fillRect(32, 158, 60, 9, C_BLACK);
-    tft.fillRect(178, 158, 60, 9, C_BLACK);
-    tft.fillRect(32, 172, 60, 9, C_BLACK);
-    tft.fillRect(178, 172, 60, 9, C_BLACK);
+    tft.fillRect(5, 180, 120, 9, C_BLACK);
+    tft.fillRect(150, 180, 80, 9, C_BLACK);
+    tft.fillRect(5, 200, 120, 9, C_BLACK);
+    tft.fillRect(150, 200, 80, 9, C_BLACK);
     
     tft.setTextSize(1);
     if (nextAosTime > 0) {
-      struct tm *tmAos = gmtime((const time_t*)&nextAosTime);
-      struct tm *tmLos = gmtime((const time_t*)&nextLosTime);
+      struct tm *tmAos = gmtime(&nextAosTime);
+      struct tm *tmLos = gmtime(&nextLosTime);
       
       tft.setTextColor(C_WHITE);
-      tft.setCursor(32, 158);
+      tft.setCursor(5, 180);
       snprintf(buf, sizeof(buf), "%02d:%02d:%02d", tmAos->tm_hour, tmAos->tm_min, tmAos->tm_sec);
       tft.print(buf);
       
-      tft.setCursor(32, 172);
+      tft.setCursor(5, 200);
       snprintf(buf, sizeof(buf), "%02d:%02d:%02d", tmLos->tm_hour, tmLos->tm_min, tmLos->tm_sec);
       tft.print(buf);
       
-      tft.setCursor(178, 158);
+      tft.setCursor(150, 180);
       tft.setTextColor(C_YELLOW);
-      snprintf(buf, sizeof(buf), "%.1f*", (double)nextMaxEl);
+      snprintf(buf, sizeof(buf), "%.1f deg", nextMaxEl);
       tft.print(buf);
       
-      tft.setCursor(178, 172);
+      tft.setCursor(150, 200);
       if (countdown < 0 && nowEpoch < nextLosTime) {
-        tft.setTextColor(C_GREEN); tft.print("TRACKING");
+        tft.setTextColor(C_GREEN); tft.print("IN PASS");
       } else if (countdown >= 0) {
         tft.setTextColor(C_ORANGE);
         snprintf(buf, sizeof(buf), "%02ld:%02ld:%02ld", countdown/3600, (countdown%3600)/60, countdown%60);
         tft.print(buf);
       } else {
-        tft.setTextColor(C_MGRAY); tft.print("ACQUIRING");
+        tft.setTextColor(C_MGRAY); tft.print("CALCULATING");
       }
     } else {
-      tft.setTextColor(C_RED); tft.setCursor(32, 158); tft.print("NO ORBIT");
+      tft.setTextColor(C_MGRAY);
+      tft.setCursor(5, 180); tft.print("WAITING FOR TLE");
     }
     prev_countdown = countdown;
   }
 }
 
 // =============================================
-//   TFT — RADAR ENGINE (STRICT ATOMIC REDRAW)
+//   TFT — RADAR UPDATE 
 // =============================================
 void tftRadarUpdate() {
-  if(spiLock) return;
-  int cx=120, cy=252, r=50;
+  int cx=120, cy=265, r=50;
 
   auto toXY = [cx,cy,r](float az, float el, int &x, int &y){
     float rr  = r * (1.0f - el/90.0f);
@@ -718,63 +732,46 @@ void tftRadarUpdate() {
     y = cy + (int)(rr * sinf(rad));
   };
 
-  // Atomic cleanup loop to eliminate trailing blips
   if (prev_antX >= 0) {
     tft.drawLine(cx, cy, prev_antX, prev_antY, C_BLACK);
     tft.fillCircle(prev_antX, prev_antY, 3, C_BLACK);
+    tft.drawFastVLine(cx, cy-r, r*2,   C_DGRAY);
+    tft.drawFastHLine(cx-r, cy, r*2+1, C_DGRAY);
   }
+  
   if (prev_satX >= 0) {
-    tft.fillCircle(prev_satX, prev_satY, 4, C_BLACK);
-    tft.drawCircle(prev_satX, prev_satY, 7, C_BLACK);
+    tft.fillCircle(prev_satX, prev_satY, 5, C_BLACK);
+    tft.drawCircle(cx, cy, r,    C_DGRAY);
+    tft.drawCircle(cx, cy, r*2/3, C_DGRAY);
+    tft.drawCircle(cx, cy, r*1/3, C_DGRAY);
   }
 
-  // Restore alignment intersections
-  tft.drawCircle(cx, cy, r*2/3, C_DGRAY);
-  tft.drawCircle(cx, cy, r*1/3, C_DGRAY);
-  tft.drawFastVLine(cx, cy-r+1, r*2-2, C_DGRAY);
-  tft.drawFastHLine(cx-r+1, cy, r*2-2, C_DGRAY);
-
-  // Plot Trajectory Projection Vector
-  int len = globalPathLen;
-  if (len > 1) {
-    int lastX = -1, lastY = -1;
-    for (int i = 0; i < len; i++) {
-      int px, py;
-      toXY(globalPath[i].az, globalPath[i].el, px, py);
-      if (lastX != -1) {
-        tft.drawLine(lastX, lastY, px, py, C_GREEN);
-      }
-      if (i == 0) {
-        tft.setTextColor(C_GREEN); tft.setTextSize(1);
-        tft.setCursor(px - 6, py - 8); tft.print("A");
-      } else if (i == len - 1) {
-        tft.setTextColor(C_RED); tft.setTextSize(1);
-        tft.setCursor(px - 6, py - 8); tft.print("L");
-      }
-      lastX = px; lastY = py;
-    }
+  for (int i = 0; i < globalPathLen; i++) {
+    int px, py;
+    toXY(globalPath[i].az, globalPath[i].el, px, py);
+    tft.drawPixel(px, py, C_GREEN);
   }
 
-  // Commit antenna tracking pointer
   int antX, antY;
   toXY((float)currentAz, (float)currentEl, antX, antY);
   tft.drawLine(cx, cy, antX, antY, C_BLUE);
   tft.fillCircle(antX, antY, 3, C_CYAN);
   prev_antX = antX; prev_antY = antY;
 
-  // Commit active target tracking blip
-  float tEl = targetEl;
-  if (tEl > 0.0f) {
+  if (targetEl > 0.0f) {
     int satX, satY;
-    toXY((float)targetAz, tEl, satX, satY);
-    tft.fillCircle(satX, satY, 4, C_CYAN);
-    tft.drawCircle(satX, satY, 7, C_CYAN);
+    toXY((float)targetAz, (float)targetEl, satX, satY);
+    tft.fillCircle(satX, satY, 5, C_CYAN);
+    tft.drawCircle(satX, satY, 8, C_CYAN);
     prev_satX = satX; prev_satY = satY;
   } else {
     prev_satX = -1; prev_satY = -1;
   }
 }
 
+// =============================================
+//   PASS LOGGER
+// =============================================
 void logPass() {
   if (passLogCount >= 10) {
     for (int i = 0; i < 9; i++) passLog[i] = passLog[i+1];
@@ -784,11 +781,11 @@ void logPass() {
   strncpy(passLog[passLogCount].time, passStartBuf, 19);
   passLog[passLogCount].maxEl = passMaxEl;
   passLogCount++;
-  Serial.printf("[SGP4] Pass Log Entry Committed for %s | MaxEl: %.1f\n", satName, passMaxEl);
+  Serial.printf("[PASS] Logged %s MaxEl:%.1f\n", satName, passMaxEl);
 }
 
 // =============================================
-//   WEB SERVER ROUTING
+//   WEB SERVER
 // =============================================
 void setupWebServer() {
   webServer.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
@@ -802,10 +799,10 @@ void setupWebServer() {
       request->send(200, "application/json", "[]"); return;
     }
     String json = "[";
-    int len = globalPathLen;
-    for (int i = 0; i < len; i++) {
+    for (int i = 0; i < globalPathLen; i++) {
       if (i > 0) json += ",";
-      json += "{\"az\":" + String(globalPath[i].az,1) + ",\"el\":" + String(globalPath[i].el,1) + "}";
+      json += "{\"az\":" + String(globalPath[i].az,1) +
+              ",\"el\":" + String(globalPath[i].el,1) + "}";
     }
     json += "]";
     request->send(200, "application/json", json);
@@ -814,14 +811,18 @@ void setupWebServer() {
     String json = "[";
     for (int i = 0; i < passLogCount; i++) {
       if (i > 0) json += ",";
-      json += "{\"sat\":\"" + String(passLog[i].sat)  + "\",\"time\":\"" + String(passLog[i].time) + "\",\"maxEl\":"  + String(passLog[i].maxEl,1) + "}";
+      json += "{\"sat\":\"" + String(passLog[i].sat)  + "\","
+              "\"time\":\"" + String(passLog[i].time) + "\","
+              "\"maxEl\":"  + String(passLog[i].maxEl,1) + "}";
     }
     json += "]";
     request->send(200, "application/json", json);
   });
-  webServer.on("/api/config", HTTP_POST, [](AsyncWebServerRequest *request){
+  webServer.on("/api/config", HTTP_POST,
+    [](AsyncWebServerRequest *request){
       request->send(200, "application/json", "{\"status\":\"ok\"}");
-    }, NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
+    }, NULL,
+    [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
       String body = ""; for (size_t i = 0; i < len; i++) body += (char)data[i];
       StaticJsonDocument<256> doc;
       if (!deserializeJson(doc, body)) {
@@ -830,20 +831,22 @@ void setupWebServer() {
           maidenheadToLatLon(maidenhead, obsLat, obsLon);
           prefs.begin("sattracker", false); prefs.putString("grid", maidenhead); prefs.end();
           lastPathCalc = 0;
-          Serial.printf("[CONFIG] Observer Ground Coordinates Restructured: %s\n", maidenhead.c_str());
+          Serial.printf("[WEB] Grid updated to: %s\n", maidenhead.c_str());
         }
         if (doc.containsKey("obMode")) {
           onboardMode = doc["obMode"].as<bool>();
           prefs.begin("sattracker", false); prefs.putBool("obMode", onboardMode); prefs.end();
           lastPathCalc = 0;
-          Serial.printf("[CONFIG] Engine Handover Executed. Mode -> %s\n", onboardMode ? "INTERNAL SGP4" : "EXTERNAL INTERFACES");
+          Serial.printf("[WEB] Tracking Mode -> %s\n", onboardMode ? "INTERNAL SGP4" : "EXTERNAL L4S");
         }
       }
     }
   );
-  webServer.on("/api/tle", HTTP_POST, [](AsyncWebServerRequest *request){
+  webServer.on("/api/tle", HTTP_POST,
+    [](AsyncWebServerRequest *request){
       request->send(200, "application/json", "{\"status\":\"ok\"}");
-    }, NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
+    }, NULL,
+    [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
       String body = ""; for (size_t i = 0; i < len; i++) body += (char)data[i];
       StaticJsonDocument<512> doc;
       if (!deserializeJson(doc, body)) {
@@ -853,45 +856,47 @@ void setupWebServer() {
         if (l1.length() > 0 && l2.length() > 0) {
           File f = LittleFS.open("/tle.txt", "w");
           if (f) { f.println(name); f.println(l1); f.println(l2); f.close(); }
-          name.toCharArray(satName, 25); l1.toCharArray(tleLine1, 70); l2.toCharArray(tleLine2, 70);
+          name.toCharArray(satName, 25);
+          l1.toCharArray(tleLine1, 70); l2.toCharArray(tleLine2, 70);
           sat.site(obsLat, obsLon, obsAlt); sat.init(satName, tleLine1, tleLine2);
-          tleLoaded = true; lastPathCalc = 0; prev_sat[0] = '\0';
-          Serial.printf("[SGP4] Local Keplerian Elements Updated for: %s\n", satName);
+          tleLoaded    = true; lastPathCalc = 0; prev_sat[0] = '\0';
+          Serial.printf("[WEB] TLE Received & Saved for: %s\n", satName);
         }
       }
     }
   );
-  webServer.on("/api/manual", HTTP_POST, [](AsyncWebServerRequest *request){
+  webServer.on("/api/manual", HTTP_POST,
+    [](AsyncWebServerRequest *request){
       request->send(200, "application/json", "{\"status\":\"ok\"}");
-    }, NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
+    }, NULL,
+    [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
       String body = ""; for (size_t i = 0; i < len; i++) body += (char)data[i];
       StaticJsonDocument<128> doc;
       if (!deserializeJson(doc, body)) {
         if (!onboardMode) {
-          spiLock = true;
           if (doc.containsKey("az")) targetAz = doc["az"].as<float>();
           if (doc.containsKey("el")) targetEl = doc["el"].as<float>();
-          spiLock = false;
+          Serial.printf("[WEB] Manual Joystick Slew -> AZ:%.1f EL:%.1f\n", (float)targetAz, (float)targetEl);
         }
       }
     }
   );
   ws.onEvent([](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len){
-    if (type == WS_EVT_CONNECT) { client->text(buildTelemetryJson()); }
+    if (type == WS_EVT_CONNECT) {
+      Serial.printf("[WS] Client #%u connected to Dashboard\n", client->id());
+      client->text(buildTelemetryJson());
+    }
   });
   webServer.addHandler(&ws);
   webServer.begin();
 }
 
 // =============================================
-//   PRECISE PATH PREDICTION ARRAY (WATCHDOG SAFE)
+//   PRECISE PATH PREDICTION
 // =============================================
 void calculatePathPrediction() {
   if (!tleLoaded || !ntpSynced || !onboardMode) { globalPathLen = 0; return; }
-  
-  Sgp4 pathSat; 
-  pathSat.site(obsLat, obsLon, obsAlt); 
-  pathSat.init(satName, tleLine1, tleLine2);
+  Sgp4 pathSat; pathSat.site(obsLat, obsLon, obsAlt); pathSat.init(satName, tleLine1, tleLine2);
 
   unsigned long t = timeClient.getEpochTime();
   bool inPass = false;
@@ -899,22 +904,19 @@ void calculatePathPrediction() {
   pathSat.findsat(t);
   if (pathSat.satEl > 0) {
     inPass = true;
-    while (pathSat.satEl > 0) { t -= 60; pathSat.findsat(t); vTaskDelay(pdMS_TO_TICKS(2)); } 
-    t += 60;
+    while (pathSat.satEl > 0) { t -= 60; pathSat.findsat(t); } t += 60;
   } else {
     for (int i = 0; i < 1440; i += 2) {
       t += 120; pathSat.findsat(t);
       if (pathSat.satEl > 0) { inPass = true; break; }
-      if (i % 20 == 0) vTaskDelay(pdMS_TO_TICKS(2)); 
+      if (i % 60 == 0) yield();
     }
     if (inPass) {
-       while (pathSat.satEl > 0) { t -= 60; pathSat.findsat(t); vTaskDelay(pdMS_TO_TICKS(2)); } 
-       t += 60;
+       while (pathSat.satEl > 0) { t -= 60; pathSat.findsat(t); } t += 60;
     }
   }
   
-  float tempMaxEl = 0.0;
-  int tempLen = 0;
+  globalPathLen = 0; nextMaxEl = 0.0;
   
   if (inPass) {
     nextAosTime = t;
@@ -922,39 +924,36 @@ void calculatePathPrediction() {
       pathSat.findsat(t);
       if (pathSat.satEl < 0 && i > 0) break;
       if (pathSat.satEl >= 0) {
-        if (pathSat.satEl > tempMaxEl) tempMaxEl = pathSat.satEl;
-        globalPath[tempLen].az = pathSat.satAz; 
-        globalPath[tempLen].el = pathSat.satEl; 
-        tempLen++;
+        if (pathSat.satEl > nextMaxEl) nextMaxEl = pathSat.satEl;
+        globalPath[globalPathLen].az = pathSat.satAz; globalPath[globalPathLen].el = pathSat.satEl; globalPathLen++;
       }
       t += 60;
-      vTaskDelay(pdMS_TO_TICKS(2)); 
     }
     nextLosTime = t;
   } else {
     nextAosTime = 0; nextLosTime = 0;
   }
-  
-  nextMaxEl = tempMaxEl;
-  globalPathLen = tempLen;
-  Serial.printf("[SGP4] Look4Sat Array Projected: %d Nodes, MaxEl: %.1f*\n", globalPathLen, nextMaxEl);
+  Serial.printf("[SGP4] Pass Array Calculated: %d points. Max El: %.1f deg\n", globalPathLen, nextMaxEl);
 }
 
 // =============================================
-//   CORE 0 TASK (TCP, WEBSOCKET, TFT TERMINAL)
+//   CORE 0 TASK (TCP, WebSocket, Display)
 // =============================================
 void Core0TaskCode(void *pvParameters) {
   for (;;) {
     esp_task_wdt_reset();
 
     if (WiFi.status() == WL_CONNECTED) {
-      if (timeClient.update()) ntpSynced = true;
+      if (timeClient.update()) {
+          if (!ntpSynced) Serial.println("[NTP] UTC Time Synchronized Successfully");
+          ntpSynced = true;
+      }
     }
 
     static unsigned long lastWifiCheck = 0;
     if (millis() - lastWifiCheck > 10000) {
       lastWifiCheck = millis();
-      if (WiFi.status() != WL_CONNECTED) { WiFi.reconnect(); }
+      if (WiFi.status() != WL_CONNECTED) { Serial.println("[WIFI] Connection lost. Reconnecting..."); WiFi.reconnect(); }
     }
 
     if (!tcpClient || !tcpClient.connected()) tcpClient = tcpServer.available();
@@ -963,9 +962,8 @@ void Core0TaskCode(void *pvParameters) {
       String cmd = tcpClient.readStringUntil('\n');
       if (cmd.length() > 0) {
         if (!onboardMode) {
-            spiLock = true; // Engage atomic driver safeguard
             parseEasyComm(cmd);
-            spiLock = false; // Release bus
+            Serial.printf("[L4S] Incoming TCP Cmd -> AZ: %.1f | EL: %.1f\n", (float)targetAz, (float)targetEl);
         }
         tcpClient.println("OK");
       }
@@ -987,13 +985,13 @@ void Core0TaskCode(void *pvParameters) {
 }
 
 // =============================================
-//   SYSTEM BOOT & CORE COUPLING
+//   SETUP
 // =============================================
 void setup() {
   Serial.begin(115200);
   delay(2000);
   Serial.println("\n====================================");
-  Serial.println(" ESP32 Aerospace Tracker v5.5 (ST7789)");
+  Serial.println(" ESP32 Aerospace Tracker v5.1");
   Serial.println("====================================");
 
   esp_task_wdt_init(30, true);
@@ -1001,6 +999,7 @@ void setup() {
 
   pinMode(ENABLE_PIN, OUTPUT);
   digitalWrite(ENABLE_PIN, HIGH);
+  // pinMode(BOOT_BUTTON, INPUT_PULLUP);
 
   azStepper.setMaxSpeed(2000.0); azStepper.setAcceleration(1000.0);
   elStepper.setMaxSpeed(2000.0); elStepper.setAcceleration(1000.0);
@@ -1013,7 +1012,7 @@ void setup() {
   tft.setTextColor(C_CYAN); tft.setTextSize(2);
   tft.setCursor(20, 90);  tft.print("AEROSPACE CMD");
   tft.setTextSize(1); tft.setTextColor(C_MGRAY);
-  tft.setCursor(60, 120); tft.print("Coupling Drivers...");
+  tft.setCursor(60, 120); tft.print("Booting ST7789 system...");
 
   if (!LittleFS.begin(false)) LittleFS.begin(true);
 
@@ -1023,9 +1022,6 @@ void setup() {
   prefs.end();
   maidenheadToLatLon(maidenhead, obsLat, obsLon);
   
-  // Local tracking structures configuration
-  sat.site(obsLat, obsLon, obsAlt);
-  
   if (LittleFS.exists("/tle.txt")) {
     File f = LittleFS.open("/tle.txt", "r");
     if (f) {
@@ -1034,22 +1030,28 @@ void setup() {
       String l2 = f.readStringUntil('\n'); l2.trim(); l2.toCharArray(tleLine2, 70);
       f.close();
       if (strlen(tleLine1) > 0 && strlen(tleLine2) > 0) {
+        sat.site(obsLat, obsLon, obsAlt);
         sat.init(satName, tleLine1, tleLine2);
         tleLoaded = true;
+        Serial.printf("[BOOT] Loaded TLE for: %s\n", satName);
       }
     }
   }
 
   tft.fillScreen(C_BLACK);
   tft.setTextColor(C_CYAN); tft.setTextSize(2);
-  tft.setCursor(40, 90); tft.print("NET COUPLING...");
+  tft.setCursor(40, 90); tft.print("CONNECTING...");
   
   WiFi.begin(ssid, password);
   int retry = 0;
   while (WiFi.status() != WL_CONNECTED && retry++ < 20) { delay(500); }
   
   if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("[WIFI] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
+    
+    // START mDNS BROADCASTER
     if (MDNS.begin("sattracker")) {
+      Serial.println("[mDNS] Broadcast active: sattracker.local");
       MDNS.addService("http", "tcp", 80);
       MDNS.addService("easycomm", "tcp", 4533);
     }
@@ -1064,11 +1066,7 @@ void setup() {
 
   setupWebServer();
   tcpServer.begin();
-
-  // Force SGP4 evaluation block directly into memory on initialization
-  if(tleLoaded && ntpSynced && onboardMode) {
-    calculatePathPrediction();
-  }
+  Serial.println("[WEB] Port 80 Active | TCP Listener Port 4533 Active");
 
   tftDrawStaticFrame();
   digitalWrite(ENABLE_PIN, LOW);
@@ -1077,7 +1075,7 @@ void setup() {
 }
 
 // =============================================
-//   CORE 1 RUNTIME (STEPPER CONTROL DRIVERS)
+//   LOOP (Core 1 — steppers + SGP4 + OTA)
 // =============================================
 void loop() {
   esp_task_wdt_reset();
@@ -1099,26 +1097,27 @@ void loop() {
 
   if (onboardMode) {
       if (tleLoaded && ntpSynced && millis() - lastSGP4Update > 1000) {
-        spiLock = true; // Lock bus while parsing physics matrices
         runSGP4();
-        spiLock = false; 
         lastSGP4Update = millis();
       }
       
       if (millis() - lastLog > 5000) {
-          if (!tleLoaded) Serial.println("[SGP4] Waiting on Web Interface Keplerian Upload...");
-          else if (!ntpSynced) Serial.println("[NTP] Starved. Syncing Reference Time...");
-          else Serial.printf("[SGP4] Vector -> AZ: %.1f | EL: %.1f | Range: %.0fkm\n", (float)targetAz, (float)targetEl, (float)satDistance);
+          if (!tleLoaded) Serial.println("[SGP4] Awaiting TLE Data from Web Dashboard...");
+          else if (!ntpSynced) Serial.println("[SGP4] Awaiting NTP Time Sync...");
+          else Serial.printf("[SGP4] Internal Tracking -> AZ: %.1f | EL: %.1f | Dist: %.0fkm\n", (float)targetAz, (float)targetEl, (float)satDistance);
           lastLog = millis();
       }
   } else {
       if (millis() - lastLog > 10000) {
-          Serial.println("[NET] Port 4533 Listening for Look4Sat Packets...");
+          Serial.println("[SYS] Awaiting External Look4Sat Commands on Port 4533...");
           lastLog = millis();
       }
   }
 }
 
+// =============================================
+//   EASYCOMM II PARSER
+// =============================================
 void parseEasyComm(String cmd) {
   cmd.trim();
   if (cmd.length() < 2) return;
@@ -1142,8 +1141,12 @@ void parseEasyComm(String cmd) {
   }
 }
 
+// =============================================
+//   SGP4 RUN + DOPPLER + PASS LOGGING
+// =============================================
 void runSGP4() {
   unsigned long now = timeClient.getEpochTime();
+  sat.site(obsLat, obsLon, obsAlt);
   sat.findsat(now);
 
   unsigned long curMs = millis();
@@ -1167,6 +1170,7 @@ void runSGP4() {
       time_t t       = (time_t)now;
       struct tm *tm  = gmtime(&t);
       sprintf(passStartBuf, "%02d:%02d:%02d", tm->tm_hour, tm->tm_min, tm->tm_sec);
+      Serial.printf("[PASS] Active Pass Triggered for: %s\n", satName);
     } else {
       if ((float)sat.satEl > passMaxEl) passMaxEl = sat.satEl;
     }
