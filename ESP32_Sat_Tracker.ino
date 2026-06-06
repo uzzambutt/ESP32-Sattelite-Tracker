@@ -18,7 +18,7 @@
 #include "secrets.h"
 
 // =============================================
-//   PROGMEM AEROSPACE WEB INTERFACE
+//   PROGMEM: MAIN TACTICAL DASHBOARD
 // =============================================
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
@@ -216,8 +216,6 @@ const char index_html[] PROGMEM = R"rawliteral(
 
   function fetchCelestrak() {
     const btn = document.getElementById('btn-fetch');
-    
-    // Check Local Storage Cache First (Valid for 4 hours)
     const cachedDB = localStorage.getItem('celestrakDB');
     const cacheTime = localStorage.getItem('celestrakTime');
     const now = new Date().getTime();
@@ -236,7 +234,6 @@ const char index_html[] PROGMEM = R"rawliteral(
       return r.text();
     })
     .then(txt => {
-      // Save successful pull to cache
       localStorage.setItem('celestrakDB', txt);
       localStorage.setItem('celestrakTime', now);
       processTLEText(txt, btn);
@@ -248,7 +245,6 @@ const char index_html[] PROGMEM = R"rawliteral(
          btn.innerText = 'DOWNLOAD FAILED. LOADING CACHE...';
       }
       
-      // Fallback to expired cache if available so UI still works
       if (cachedDB) {
          setTimeout(() => processTLEText(cachedDB, btn), 1500);
       } else {
@@ -369,6 +365,57 @@ const char index_html[] PROGMEM = R"rawliteral(
 )rawliteral";
 
 // =============================================
+//   PROGMEM: WIFI PROVISIONING PORTAL
+// =============================================
+const char wifi_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WIFI CONFIGURATION</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@400;600&display=swap');
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', sans-serif; background: #030712; color: #e2e8f0; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; padding: 20px; text-align: center; }
+    .panel { background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 30px; width: 100%; max-width: 400px; box-shadow: 0 4px 6px rgba(0,0,0,0.5); }
+    h2 { font-family: 'Share Tech Mono', monospace; color: #22d3ee; margin-bottom: 20px; letter-spacing: 2px; }
+    p { color: #94a3b8; font-size: 0.9rem; margin-bottom: 25px; line-height: 1.5; }
+    input { width: 100%; padding: 15px; margin-bottom: 15px; background: #020617; border: 1px solid #1e293b; color: #e2e8f0; border-radius: 4px; font-size: 1rem; outline: none; }
+    input:focus { border-color: #22d3ee; }
+    button { width: 100%; padding: 15px; background: rgba(34,211,238,0.1); color: #22d3ee; border: 1px solid #22d3ee; border-radius: 4px; cursor: pointer; font-weight: 600; letter-spacing: 2px; font-size: 1rem; transition: 0.2s; }
+    button:hover { background: #22d3ee; color: #020617; }
+  </style>
+</head>
+<body>
+  <div class="panel" id="mainPanel">
+    <h2>NETWORK SETUP</h2>
+    <p>The Aerospace Tracker lost its network link. Enter your router credentials below to restore the SGP4 engine connection.</p>
+    <input type="text" id="ssid" placeholder="WiFi Network Name (SSID)">
+    <input type="password" id="pass" placeholder="WiFi Password">
+    <button onclick="saveWifi()">SAVE & REBOOT</button>
+  </div>
+<script>
+  function saveWifi() {
+    const s = document.getElementById('ssid').value;
+    const p = document.getElementById('pass').value;
+    if(!s || !p) { alert("Please enter both SSID and Password"); return; }
+    
+    document.getElementById('mainPanel').innerHTML = "<h2>REBOOTING...</h2><p>Credentials saved. Please disconnect from this Access Point and return to your home WiFi network. The tracker will be available there shortly.</p>";
+    
+    fetch('/api/wifi', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ssid: s, pass: p })
+    });
+  }
+</script>
+</body>
+</html>
+)rawliteral";
+
+
+// =============================================
 //   PIN DEFINITIONS
 // =============================================
 #define TFT_CS   15
@@ -427,6 +474,8 @@ const float STEPS_PER_DEGREE_AZ = 8.88;
 const float STEPS_PER_DEGREE_EL = 8.88;
 
 volatile bool onboardMode = false;
+volatile bool isAPMode = false;
+volatile bool triggerReboot = false; 
 double obsLat = 31.52, obsLon = 74.35, obsAlt = 0.21;
 String maidenhead = "MM71dl";
 
@@ -457,12 +506,13 @@ volatile bool newPathReady = false;
 // Dynamic Cache
 float  prev_cAz = -999, prev_cEl = -999;
 float  prev_tAz = -999, prev_tEl = -999;
+float  prev_dAz = -999, prev_dEl = -999;
 float  prev_doppler = -999;
 float  prev_dist = -999;
 int    prev_rssi = 0;
-bool   prev_moving = false;
-bool   prev_ntp = false;
-bool   prev_l4s = false;
+int    prev_moving = -1;
+int    prev_ntp = -1;
+int    prev_l4s = -1;
 int    prev_mode = -1;
 char   prev_sat[25] = "";
 unsigned long prev_uptime = 0;
@@ -481,6 +531,7 @@ void parseEasyComm(String cmd);
 void runSGP4();
 void calculatePathPrediction();
 void tftDrawStaticFrame();
+void tftDrawAPMode();
 void tftUpdateDynamic();
 void tftRadarUpdate();
 void setupWebServer();
@@ -508,7 +559,7 @@ String buildTelemetryJson() {
   doc["cAz"]      = (float)currentAz;
   doc["cEl"]      = (float)currentEl;
   doc["isMoving"] = isMoving;
-  doc["rssi"]     = WiFi.RSSI();
+  doc["rssi"]     = isAPMode ? 0 : WiFi.RSSI();
   doc["freeHeap"] = ESP.getFreeHeap() / 1024;
   doc["uptime"]   = millis() / 1000;
   doc["mode"]     = onboardMode ? 1 : 0;
@@ -526,13 +577,12 @@ String buildTelemetryJson() {
 // =============================================
 void drawBootScreen() {
   tft.fillScreen(C_BLACK);
-  
   tft.setTextColor(C_CYAN);
   tft.setTextSize(2);
   tft.setCursor(10, 15);
   tft.print("ESP32 SATELLITE");
   tft.setCursor(10, 35);
-  tft.print("TRACKER V6.4");
+  tft.print("TRACKER V8.3");
   
   tft.setTextColor(C_DGRAY);
   tft.setTextSize(1);
@@ -557,7 +607,6 @@ void drawBootScreen() {
           int offsetY = 140;
 
           tft.fillRect(offsetX - 4, offsetY - 4, (qrSize * pixelSize) + 8, (qrSize * pixelSize) + 8, C_WHITE);
-          
           for (int y = 0; y < qrSize; y++) {
             for (int x = 0; x < qrSize; x++) {
               if (qrcodegen_getModule(qrcode, x, y)) {
@@ -589,50 +638,95 @@ void printBootTerminal(String msg) {
   tft.setTextColor(C_WHITE);
   tft.print(msg);
   terminalY += 12;
-  delay(150); 
+  delay(100); 
 }
 
 // =============================================
-//   TFT — STATIC INTERFACE FRAME
+//   TFT — AP SETUP MODE STATIC SCREEN
+// =============================================
+void tftDrawAPMode() {
+  tft.fillScreen(C_BLACK);
+  
+  tft.fillRect(0, 0, 240, 25, C_RED);
+  tft.setTextColor(C_WHITE); tft.setTextSize(1);
+  tft.setCursor(6, 8); tft.print("SYSTEM CONFIGURATION");
+
+  tft.setTextColor(C_RED);
+  tft.setTextSize(2);
+  tft.setCursor(10, 45); tft.print("NETWORK LINK");
+  tft.setCursor(10, 65); tft.print("FAILED");
+
+  tft.setTextColor(C_MGRAY);
+  tft.setTextSize(1);
+  tft.setCursor(10, 100); tft.print("1. Connect Phone WiFi to:");
+  
+  tft.setTextColor(C_CYAN);
+  tft.setCursor(10, 115); tft.print("AEROSPACE-TRACKER");
+
+  tft.setTextColor(C_MGRAY);
+  tft.setCursor(10, 140); tft.print("2. Enter Password:");
+  tft.setTextColor(C_WHITE);
+  tft.setCursor(10, 155); tft.print("groundstation");
+
+  tft.setTextColor(C_MGRAY);
+  tft.setCursor(10, 180); tft.print("3. Open Web Browser:");
+  tft.setTextColor(C_GREEN);
+  tft.setCursor(10, 195); tft.print("http://192.168.4.1");
+
+  tft.drawRoundRect(5, 230, 230, 80, 4, C_DGRAY);
+  tft.setTextColor(C_YELLOW);
+  tft.setCursor(15, 245); tft.print("WAITING FOR NEW");
+  tft.setCursor(15, 260); tft.print("WIFI CREDENTIALS...");
+}
+
+
+// =============================================
+//   TFT — STATIC HUD FRAME (HIGH DENSITY)
 // =============================================
 void tftDrawStaticFrame() {
   tft.fillScreen(C_BLACK);
   
-  tft.fillRect(0, 0, 240, 22, C_DBLUE);
+  tft.fillRect(0, 0, 240, 20, C_DBLUE);
   tft.setTextColor(C_WHITE); tft.setTextSize(1);
-  tft.setCursor(6, 7); tft.print("AEROSPACE CMD TELEMETRY");
+  tft.setCursor(4, 6); tft.print("AEROSPACE TACTICAL HUD");
 
-  tft.drawRoundRect(2, 26, 236, 68, 4, C_DGRAY);
+  tft.drawRoundRect(2, 22, 236, 75, 4, C_DGRAY);
   tft.setTextColor(C_CYAN);
-  tft.setCursor(8, 32);  tft.print("TARGET:");
+  tft.setCursor(6, 28); tft.print("TGT:");
   
   tft.setTextColor(C_MGRAY);
-  tft.setCursor(8, 55);  tft.print("AZ:");
-  tft.setCursor(120, 55); tft.print("EL:");
-
-  tft.drawRoundRect(2, 98, 236, 52, 4, C_DGRAY);
-  tft.setCursor(8, 106);  tft.print("MODE:");
-  tft.setCursor(8, 120);  tft.print("L4S :");
-  tft.setCursor(8, 134);  tft.print("NTP :");
+  tft.setCursor(6, 45); tft.print("AZ:");
+  tft.setCursor(120, 45); tft.print("EL:");
   
-  tft.setCursor(120, 106); tft.print("DOPP:");
-  tft.setCursor(120, 120); tft.print("DIST:");
-  tft.setCursor(120, 134); tft.print("RSSI:");
+  tft.setCursor(6, 84); tft.print("dAZ:");
+  tft.setCursor(120, 84); tft.print("dEL:");
 
-  tft.drawRoundRect(2, 154, 236, 40, 4, C_DGRAY);
+  tft.drawRoundRect(2, 99, 236, 46, 4, C_DGRAY);
+  tft.setCursor(6, 105); tft.print("ENG:");
+  tft.setCursor(120, 105); tft.print("SYS:");
+  tft.setCursor(6, 118); tft.print("L4S:");
+  tft.setCursor(120, 118); tft.print("NTP:");
+  tft.setCursor(6, 131); tft.print("NET:");
+  
+  tft.drawRoundRect(2, 147, 236, 40, 4, C_DGRAY);
   tft.setTextColor(C_ORANGE); 
-  tft.setCursor(8, 162); tft.print("AOS:");
-  tft.setCursor(120, 162); tft.print("MAX-EL:");
-  tft.setCursor(8, 176); tft.print("LOS:");
-  tft.setCursor(120, 176); tft.print("T-MINUS:");
+  tft.setCursor(6, 153); tft.print("AOS:");
+  tft.setCursor(120, 153); tft.print("MAX:");
+  tft.setCursor(6, 172); tft.print("LOS:");
+  tft.setCursor(120, 172); tft.print("T-M:");
 
-  tft.drawRoundRect(2, 198, 236, 120, 4, C_DGRAY);
-  int cx=120, cy=258, r=52;
-  tft.drawCircle(cx, cy, r,    C_DGRAY);
+  tft.drawRoundRect(2, 189, 236, 129, 4, C_DGRAY);
+  int cx=120, cy=253, r=55;
+  tft.drawCircle(cx, cy, r, C_DGRAY);
   tft.drawCircle(cx, cy, r*2/3, C_DGRAY);
   tft.drawCircle(cx, cy, r*1/3, C_DGRAY);
-  tft.drawFastVLine(cx, cy-r, r*2+1,   C_DGRAY);
+  tft.drawFastVLine(cx, cy-r, r*2+1, C_DGRAY);
   tft.drawFastHLine(cx-r, cy, r*2+1, C_DGRAY);
+  
+  for(int i=0; i<360; i+=45) {
+    float rad = i * PI / 180.0;
+    tft.drawLine(cx + (r-3)*cos(rad), cy + (r-3)*sin(rad), cx + r*cos(rad), cy + r*sin(rad), C_MGRAY);
+  }
   
   tft.setTextColor(C_CYAN);
   tft.setCursor(cx-3, cy-r-10); tft.print("N");
@@ -642,105 +736,113 @@ void tftDrawStaticFrame() {
 }
 
 // =============================================
-//   TFT — DYNAMIC ENGINE TERMINAL
+//   TFT — DYNAMIC HUD UPDATE
 // =============================================
 void tftUpdateDynamic() {
-  if(spiLock) return;
+  if(spiLock || isAPMode) return;
   char buf[32]; 
 
   if (strcmp(satName, prev_sat) != 0) {
-    tft.fillRect(52, 32, 180, 10, C_BLACK);
+    tft.fillRect(32, 28, 200, 10, C_BLACK);
     tft.setTextColor(C_YELLOW); tft.setTextSize(1);
-    tft.setCursor(52, 32);
-    snprintf(buf, sizeof(buf), "%.24s", satName); 
+    tft.setCursor(32, 28);
+    snprintf(buf, sizeof(buf), "%.26s", satName); 
     tft.print(buf);
     strncpy(prev_sat, satName, 24);
   }
 
   float cAz = currentAz; float tAz = targetAz;
+  float cEl = currentEl; float tEl = targetEl;
+  
   if (fabsf(cAz - prev_cAz) > 0.05f || fabsf(tAz - prev_tAz) > 0.05f) {
-    tft.fillRect(28, 55, 85, 32, C_BLACK);
+    tft.fillRect(25, 45, 90, 36, C_BLACK);
     tft.setTextColor(C_WHITE); tft.setTextSize(2);
-    tft.setCursor(28, 55); snprintf(buf, sizeof(buf), "%05.1f", (double)cAz); tft.print(buf);
+    tft.setCursor(25, 45); snprintf(buf, sizeof(buf), "%05.1f", (double)cAz); tft.print(buf);
     tft.setTextColor(C_GREEN); tft.setTextSize(1);
-    tft.setCursor(28, 76); snprintf(buf, sizeof(buf), "> %05.1f", (double)tAz); tft.print(buf);
+    tft.setCursor(25, 66); snprintf(buf, sizeof(buf), ">%05.1f", (double)tAz); tft.print(buf);
+    
+    tft.fillRect(32, 84, 45, 9, C_BLACK);
+    tft.setCursor(32, 84);
+    float dAz = tAz - cAz;
+    if(dAz > 180) dAz -= 360; if(dAz < -180) dAz += 360;
+    tft.setTextColor(fabsf(dAz) > 1.0 ? C_ORANGE : C_MGRAY);
+    snprintf(buf, sizeof(buf), "%+05.1f", (double)dAz); tft.print(buf);
+    
     prev_cAz = cAz; prev_tAz = tAz;
   }
 
-  float cEl = currentEl; float tEl = targetEl;
   if (fabsf(cEl - prev_cEl) > 0.05f || fabsf(tEl - prev_tEl) > 0.05f) {
-    tft.fillRect(144, 55, 85, 32, C_BLACK);
+    tft.fillRect(144, 45, 90, 36, C_BLACK);
     tft.setTextColor(C_WHITE); tft.setTextSize(2);
-    tft.setCursor(144, 55); snprintf(buf, sizeof(buf), "%04.1f", (double)cEl); tft.print(buf);
+    tft.setCursor(144, 45); snprintf(buf, sizeof(buf), "%04.1f", (double)cEl); tft.print(buf);
     tft.setTextColor(C_GREEN); tft.setTextSize(1);
-    tft.setCursor(144, 76); snprintf(buf, sizeof(buf), "> %04.1f", (double)tEl); tft.print(buf);
+    tft.setCursor(144, 66); snprintf(buf, sizeof(buf), ">%04.1f", (double)tEl); tft.print(buf);
+    
+    tft.fillRect(146, 84, 45, 9, C_BLACK);
+    tft.setCursor(146, 84);
+    float dEl = tEl - cEl;
+    tft.setTextColor(fabsf(dEl) > 1.0 ? C_ORANGE : C_MGRAY);
+    snprintf(buf, sizeof(buf), "%+04.1f", (double)dEl); tft.print(buf);
+    
     prev_cEl = cEl; prev_tEl = tEl;
   }
 
   int modeVal = onboardMode ? 1 : 0;
   if (modeVal != prev_mode) {
-    tft.fillRect(42, 106, 70, 9, C_BLACK);
+    tft.fillRect(32, 105, 80, 9, C_BLACK);
     tft.setTextColor(onboardMode ? C_CYAN : C_YELLOW);
-    tft.setTextSize(1); tft.setCursor(42, 106);
-    tft.print(onboardMode ? "SGP4 INT" : "L4S EXT");
+    tft.setTextSize(1); tft.setCursor(32, 105);
+    tft.print(onboardMode ? "INT SGP4" : "EXT L4S");
     prev_mode = modeVal;
   }
   
+  if (isMoving != prev_moving) {
+    tft.fillRect(146, 105, 80, 9, C_BLACK);
+    tft.setTextColor(isMoving ? C_ORANGE : C_GREEN);
+    tft.setTextSize(1); tft.setCursor(146, 105);
+    tft.print(isMoving ? "SLEWING" : "IDLE");
+    prev_moving = isMoving;
+  }
+
   bool l4sNow = (tcpClient && tcpClient.connected());
   if (l4sNow != prev_l4s) {
-    tft.fillRect(42, 120, 70, 9, C_BLACK);
+    tft.fillRect(32, 118, 80, 9, C_BLACK);
     tft.setTextColor(l4sNow ? C_GREEN : C_MGRAY);
-    tft.setTextSize(1); tft.setCursor(42, 120);
-    tft.print(l4sNow ? "ACTIVE" : "WAITING");
+    tft.setTextSize(1); tft.setCursor(32, 118);
+    tft.print(l4sNow ? "LINKED" : "WAIT TCP");
     prev_l4s = l4sNow;
   }
 
   if (ntpSynced != prev_ntp) {
-    tft.fillRect(42, 134, 70, 9, C_BLACK);
+    tft.fillRect(146, 118, 80, 9, C_BLACK);
     tft.setTextColor(ntpSynced ? C_GREEN : C_RED);
-    tft.setTextSize(1); tft.setCursor(42, 134);
-    tft.print(ntpSynced ? "SYNCED" : "OFFLINE");
+    tft.setTextSize(1); tft.setCursor(146, 118);
+    tft.print(ntpSynced ? "SYNC OK" : "NO SYNC");
     prev_ntp = ntpSynced;
   }
-  
-  float doppler = dopplerFreq;
-  if (fabsf(doppler - prev_doppler) > 50.0f) {
-    tft.fillRect(155, 106, 75, 9, C_BLACK);
-    tft.setTextColor(doppler >= 0 ? C_GREEN : C_ORANGE);
-    tft.setTextSize(1); tft.setCursor(155, 106);
-    snprintf(buf, sizeof(buf), "%+dHz", (int)doppler);
-    tft.print(buf);
-    prev_doppler = doppler;
-  }
 
-  float dist = satDistance;
-  if (fabsf(dist - prev_dist) > 10.0f) {
-    tft.fillRect(155, 120, 75, 9, C_BLACK);
-    tft.setTextColor(C_WHITE); tft.setTextSize(1);
-    tft.setCursor(155, 120);
-    snprintf(buf, sizeof(buf), "%dkm", (int)dist);
-    tft.print(buf);
-    prev_dist = dist;
-  }
-
-  int rssiNow = WiFi.RSSI();
-  if (abs(rssiNow - prev_rssi) > 2) {
-    tft.fillRect(155, 134, 75, 9, C_BLACK);
-    tft.setTextColor(C_WHITE); tft.setTextSize(1);
-    tft.setCursor(155, 134);
-    snprintf(buf, sizeof(buf), "%d dBm", rssiNow);
-    tft.print(buf);
-    prev_rssi = rssiNow;
+  static bool ipDrawn = false;
+  if(!ipDrawn) {
+    tft.fillRect(32, 131, 200, 9, C_BLACK);
+    tft.setCursor(32, 131);
+    if(isAPMode) {
+      tft.setTextColor(C_YELLOW);
+      tft.print("AP: 192.168.4.1");
+    } else {
+      tft.setTextColor(C_WHITE);
+      tft.print("STA: "); tft.print(WiFi.localIP().toString());
+    }
+    ipDrawn = true;
   }
 
   unsigned long nowEpoch = timeClient.getEpochTime();
   long countdown = (long)(nextAosTime - nowEpoch);
   
   if (countdown != prev_countdown) {
-    tft.fillRect(36, 162, 60, 9, C_BLACK);
-    tft.fillRect(36, 176, 60, 9, C_BLACK);
-    tft.fillRect(174, 162, 60, 9, C_BLACK);
-    tft.fillRect(174, 176, 60, 9, C_BLACK);
+    tft.fillRect(32, 153, 70, 9, C_BLACK);
+    tft.fillRect(32, 172, 70, 9, C_BLACK);
+    tft.fillRect(146, 153, 70, 9, C_BLACK);
+    tft.fillRect(146, 172, 85, 9, C_BLACK);
     
     tft.setTextSize(1);
     if (nextAosTime > 0) {
@@ -748,42 +850,37 @@ void tftUpdateDynamic() {
       struct tm *tmLos = gmtime((const time_t*)&nextLosTime);
       
       tft.setTextColor(C_WHITE);
-      tft.setCursor(36, 162);
-      snprintf(buf, sizeof(buf), "%02d:%02d", tmAos->tm_hour, tmAos->tm_min);
-      tft.print(buf);
+      tft.setCursor(32, 153); snprintf(buf, sizeof(buf), "%02d:%02d:%02d", tmAos->tm_hour, tmAos->tm_min, tmAos->tm_sec); tft.print(buf);
+      tft.setCursor(32, 172); snprintf(buf, sizeof(buf), "%02d:%02d:%02d", tmLos->tm_hour, tmLos->tm_min, tmLos->tm_sec); tft.print(buf);
       
-      tft.setCursor(36, 176);
-      snprintf(buf, sizeof(buf), "%02d:%02d", tmLos->tm_hour, tmLos->tm_min);
-      tft.print(buf);
+      tft.setCursor(146, 153); tft.setTextColor(C_YELLOW); snprintf(buf, sizeof(buf), "%.1f*", (double)nextMaxEl); tft.print(buf);
       
-      tft.setCursor(174, 162);
-      tft.setTextColor(C_YELLOW);
-      snprintf(buf, sizeof(buf), "%.1f*", (double)nextMaxEl);
-      tft.print(buf);
-      
-      tft.setCursor(174, 176);
+      tft.setCursor(146, 172);
       if (countdown < 0 && nowEpoch < nextLosTime) {
         tft.setTextColor(C_GREEN); tft.print("TRACKING");
       } else if (countdown >= 0) {
         tft.setTextColor(C_ORANGE);
-        snprintf(buf, sizeof(buf), "%02ld:%02ld:%02ld", countdown/3600, (countdown%3600)/60, countdown%60);
-        tft.print(buf);
+        snprintf(buf, sizeof(buf), "-%02ld:%02ld:%02ld", countdown/3600, (countdown%3600)/60, countdown%60); tft.print(buf);
       } else {
         tft.setTextColor(C_MGRAY); tft.print("ACQUIRING");
       }
     } else {
-      tft.setTextColor(C_RED); tft.setCursor(36, 162); tft.print("NO TLE");
+      tft.setTextColor(C_RED); 
+      tft.setCursor(32, 153); tft.print("NO TLE");
+      if(isAPMode && onboardMode) {
+          tft.setCursor(146, 172); tft.print("NTP FAIL");
+      }
     }
     prev_countdown = countdown;
   }
 }
 
 // =============================================
-//   TFT — SURGICAL RADAR WIPE
+//   TFT — RADAR ENGINE 
 // =============================================
 void tftRadarUpdate() {
-  if(spiLock) return;
-  int cx=120, cy=258, r=52;
+  if(spiLock || isAPMode) return;
+  int cx=120, cy=253, r=55;
 
   auto toXY = [cx,cy,r](float az, float el, int &x, int &y){
     float rr  = r * (1.0f - el/90.0f);
@@ -794,15 +891,15 @@ void tftRadarUpdate() {
 
   if (newPathReady) {
     tft.fillCircle(cx, cy, r - 1, C_BLACK);
-    
     tft.drawCircle(cx, cy, r*2/3, C_DGRAY);
     tft.drawCircle(cx, cy, r*1/3, C_DGRAY);
     tft.drawFastVLine(cx, cy-r+1, r*2-2, C_DGRAY);
     tft.drawFastHLine(cx-r+1, cy, r*2-2, C_DGRAY);
-
-    prev_antX = -1; 
-    prev_satX = -1;
-    newPathReady = false; 
+    for(int i=0; i<360; i+=45) {
+      float rad = i * PI / 180.0;
+      tft.drawLine(cx + (r-3)*cos(rad), cy + (r-3)*sin(rad), cx + r*cos(rad), cy + r*sin(rad), C_MGRAY);
+    }
+    prev_antX = -1; prev_satX = -1; newPathReady = false; 
   } else {
     if (prev_antX >= 0) {
       tft.drawLine(cx, cy, prev_antX, prev_antY, C_BLACK);
@@ -825,7 +922,6 @@ void tftRadarUpdate() {
       int px, py;
       toXY(globalPath[i].az, globalPath[i].el, px, py);
       if (lastX != -1) tft.drawLine(lastX, lastY, px, py, C_GREEN);
-      
       if (i == 0) {
         tft.setTextColor(C_GREEN); tft.setTextSize(1);
         tft.setCursor(px - 6, py - 8); tft.print("A");
@@ -868,12 +964,37 @@ void logPass() {
 }
 
 // =============================================
-//   WEB SERVER ROUTING
+//   WEB SERVER ROUTING (DUAL MODE)
 // =============================================
 void setupWebServer() {
   webServer.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send_P(200, "text/html", index_html);
+    if(isAPMode) {
+        request->send_P(200, "text/html", wifi_html);
+    } else {
+        request->send_P(200, "text/html", index_html);
+    }
   });
+
+  webServer.on("/api/wifi", HTTP_POST, [](AsyncWebServerRequest *request){
+      request->send(200, "application/json", "{\"status\":\"ok\"}");
+    }, NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
+      String body = ""; for (size_t i = 0; i < len; i++) body += (char)data[i];
+      StaticJsonDocument<256> doc;
+      if (!deserializeJson(doc, body)) {
+        String newSSID = doc["ssid"] | "";
+        String newPass = doc["pass"] | "";
+        if(newSSID.length() > 0) {
+          prefs.begin("sattracker", false); 
+          prefs.putString("wifi_ssid", newSSID);
+          prefs.putString("wifi_pass", newPass);
+          prefs.end();
+          Serial.printf("[WIFI] New Credentials Provisioned: %s\n", newSSID.c_str());
+          triggerReboot = true; 
+        }
+      }
+    }
+  );
+
   webServer.on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(200, "application/json", buildTelemetryJson());
   });
@@ -965,10 +1086,10 @@ void setupWebServer() {
 }
 
 // =============================================
-//   PRECISE PATH PREDICTION ARRAY
+//   PRECISE PATH PREDICTION ARRAY (GEO-SAFE)
 // =============================================
 void calculatePathPrediction() {
-  if (!tleLoaded || !ntpSynced || !onboardMode) { globalPathLen = 0; return; }
+  if (!tleLoaded || !ntpSynced || !onboardMode || isAPMode) { globalPathLen = 0; return; }
   
   Sgp4 pathSat; 
   pathSat.site(obsLat, obsLon, obsAlt); 
@@ -976,11 +1097,19 @@ void calculatePathPrediction() {
 
   unsigned long t = timeClient.getEpochTime();
   bool inPass = false;
+  bool isGeo = false;
   
   pathSat.findsat(t);
   if (pathSat.satEl > 0) {
     inPass = true;
-    while (pathSat.satEl > 0) { t -= 60; pathSat.findsat(t); vTaskDelay(pdMS_TO_TICKS(2)); } 
+    int rewindLimit = 0;
+    while (pathSat.satEl > 0 && rewindLimit < 1440) { 
+      t -= 60; 
+      pathSat.findsat(t); 
+      vTaskDelay(pdMS_TO_TICKS(2)); 
+      rewindLimit++;
+    } 
+    if (rewindLimit >= 1440) isGeo = true; 
     t += 60;
   } else {
     for (int i = 0; i < 1440; i += 2) {
@@ -989,7 +1118,14 @@ void calculatePathPrediction() {
       if (i % 20 == 0) vTaskDelay(pdMS_TO_TICKS(2)); 
     }
     if (inPass) {
-       while (pathSat.satEl > 0) { t -= 60; pathSat.findsat(t); vTaskDelay(pdMS_TO_TICKS(2)); } 
+       int rewindLimit = 0;
+       while (pathSat.satEl > 0 && rewindLimit < 1440) { 
+         t -= 60; 
+         pathSat.findsat(t); 
+         vTaskDelay(pdMS_TO_TICKS(2)); 
+         rewindLimit++;
+       } 
+       if (rewindLimit >= 1440) isGeo = true;
        t += 60;
     }
   }
@@ -999,19 +1135,25 @@ void calculatePathPrediction() {
   
   if (inPass) {
     nextAosTime = t;
-    for (int i = 0; i < 45; i++) {
-      pathSat.findsat(t);
-      if (pathSat.satEl < 0 && i > 0) break;
-      if (pathSat.satEl >= 0) {
-        if (pathSat.satEl > tempMaxEl) tempMaxEl = pathSat.satEl;
-        globalPath[tempLen].az = pathSat.satAz; 
-        globalPath[tempLen].el = pathSat.satEl; 
-        tempLen++;
+    if (isGeo) {
+      Serial.println("[SGP4] GEO/High-Orbit detected. Skipping trajectory math.");
+      nextLosTime = t + 86400;
+      tempMaxEl = pathSat.satEl;
+    } else {
+      for (int i = 0; i < 45; i++) {
+        pathSat.findsat(t);
+        if (pathSat.satEl < 0 && i > 0) break;
+        if (pathSat.satEl >= 0) {
+          if (pathSat.satEl > tempMaxEl) tempMaxEl = pathSat.satEl;
+          globalPath[tempLen].az = pathSat.satAz; 
+          globalPath[tempLen].el = pathSat.satEl; 
+          tempLen++;
+        }
+        t += 60;
+        vTaskDelay(pdMS_TO_TICKS(2)); 
       }
-      t += 60;
-      vTaskDelay(pdMS_TO_TICKS(2)); 
+      nextLosTime = t;
     }
-    nextLosTime = t;
   } else {
     nextAosTime = 0; nextLosTime = 0;
   }
@@ -1019,7 +1161,6 @@ void calculatePathPrediction() {
   nextMaxEl = tempMaxEl;
   globalPathLen = tempLen;
   newPathReady = true; 
-  Serial.printf("[SGP4] Look4Sat Array Projected: %d Nodes, MaxEl: %.1f*\n", globalPathLen, nextMaxEl);
 }
 
 // =============================================
@@ -1029,29 +1170,26 @@ void Core0TaskCode(void *pvParameters) {
   for (;;) {
     esp_task_wdt_reset();
 
-    if (WiFi.status() == WL_CONNECTED) {
+    if (WiFi.status() == WL_CONNECTED && !isAPMode) {
       if (timeClient.update()) ntpSynced = true;
     }
 
     static unsigned long lastWifiCheck = 0;
-    if (millis() - lastWifiCheck > 10000) {
+    if (millis() - lastWifiCheck > 10000 && !isAPMode) {
       lastWifiCheck = millis();
       if (WiFi.status() != WL_CONNECTED) { WiFi.reconnect(); }
     }
 
     if (!tcpClient || !tcpClient.connected()) {
         tcpClient = tcpServer.available();
-        if(tcpClient) {
-             // Disable Nagle's algorithm for low-latency L4S telemetry
-             tcpClient.setNoDelay(true);
-        }
+        if(tcpClient) { tcpClient.setNoDelay(true); }
     }
     
     if (tcpClient && tcpClient.available()) {
-      tcpClient.setTimeout(5); // Extremely short timeout to prevent L4S blocking
+      tcpClient.setTimeout(5); 
       String cmd = tcpClient.readStringUntil('\n');
       if (cmd.length() > 0) {
-        if (!onboardMode) {
+        if (!onboardMode && !isAPMode) {
             spiLock = true; 
             parseEasyComm(cmd);
             spiLock = false; 
@@ -1060,16 +1198,16 @@ void Core0TaskCode(void *pvParameters) {
       }
     }
 
-    if (millis() - lastPathCalc > 60000) { calculatePathPrediction(); lastPathCalc = millis(); }
+    if (millis() - lastPathCalc > 60000 && !isAPMode) { calculatePathPrediction(); lastPathCalc = millis(); }
 
     static unsigned long lastWsPush = 0;
-    if (millis() - lastWsPush > 1000) {
+    if (millis() - lastWsPush > 1000 && !isAPMode) {
       if (ws.count() > 0) ws.textAll(buildTelemetryJson());
       lastWsPush = millis();
     }
 
     static unsigned long lastTft = 0;
-    if (millis() - lastTft > 300) { tftUpdateDynamic(); tftRadarUpdate(); lastTft = millis(); }
+    if (millis() - lastTft > 300 && !isAPMode) { tftUpdateDynamic(); tftRadarUpdate(); lastTft = millis(); }
 
     vTaskDelay(pdMS_TO_TICKS(50));
   }
@@ -1082,7 +1220,7 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   Serial.println("\n====================================");
-  Serial.println(" ESP32 Aerospace Tracker v6.4 (ST7789)");
+  Serial.println(" ESP32 Aerospace Tracker v8.3 (ST7789)");
   Serial.println("====================================");
 
   esp_task_wdt_init(30, true);
@@ -1112,11 +1250,15 @@ void setup() {
   printBootTerminal("Initializing LittleFS Engine...");
   if (!LittleFS.begin(false)) { LittleFS.begin(true); }
 
-  printBootTerminal("Loading Ground Station Prefs...");
+  printBootTerminal("Loading NVRAM Prefs...");
   prefs.begin("sattracker", true);
   maidenhead  = prefs.getString("grid", maidenhead);
   onboardMode = prefs.getBool("obMode", false);
+  
+  String savedSSID = prefs.getString("wifi_ssid", ssid);
+  String savedPass = prefs.getString("wifi_pass", password);
   prefs.end();
+  
   maidenheadToLatLon(maidenhead, obsLat, obsLon);
   sat.site(obsLat, obsLon, obsAlt);
   
@@ -1135,21 +1277,39 @@ void setup() {
   }
   
   printBootTerminal("Coupling WiFi Radio...");
-  WiFi.begin(ssid, password);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(savedSSID.c_str(), savedPass.c_str());
   WiFi.setSleep(false); 
   
-  int retry = 0;
-  while (WiFi.status() != WL_CONNECTED && retry++ < 20) { delay(500); }
+  unsigned long startAttempt = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+      if (millis() - startAttempt > 15000) {
+          isAPMode = true;
+          break;
+      }
+      delay(500);
+  }
   
-  if (WiFi.status() == WL_CONNECTED) {
-    printBootTerminal("IP Assigned: " + WiFi.localIP().toString());
-    if (MDNS.begin("sattracker")) {
-      MDNS.addService("http", "tcp", 80);
-      MDNS.addService("easycomm", "tcp", 4533);
-      printBootTerminal("mDNS Active: sattracker.local");
-    }
-  } else {
-    printBootTerminal("WARN: WiFi Offline Mode");
+  if (isAPMode) {
+      printBootTerminal("WARN: Network Timeout.");
+      printBootTerminal("Executing Setup Gateway...");
+      WiFi.disconnect();
+      WiFi.mode(WIFI_AP);
+      WiFi.softAP("AEROSPACE-TRACKER", "groundstation");
+      
+      setupWebServer();
+      tcpServer.begin();
+      
+      delay(1000);
+      tftDrawAPMode();
+      return; 
+  }
+
+  printBootTerminal("IP Assigned: " + WiFi.localIP().toString());
+  if (MDNS.begin("sattracker")) {
+    MDNS.addService("http", "tcp", 80);
+    MDNS.addService("easycomm", "tcp", 4533);
+    printBootTerminal("mDNS Active: sattracker.local");
   }
 
   printBootTerminal("Syncing Reference Clock...");
@@ -1186,6 +1346,14 @@ void setup() {
 // =============================================
 void loop() {
   esp_task_wdt_reset();
+  
+  if (triggerReboot) {
+      delay(1000); 
+      ESP.restart();
+  }
+  
+  if (isAPMode) return; 
+
   ArduinoOTA.handle();
 
   targetEl = constrain((float)targetEl, 0.0f, 90.0f);
@@ -1263,9 +1431,12 @@ void runSGP4() {
   lastDopplerTime = curMs;
   satDistance     = (float)sat.satDist;
 
+  // UNCONDITIONAL COORDINATE HANDOVER
+  targetAz = sat.satAz;
+  targetEl = sat.satEl;
+
+  // PASS LOGGING LOGIC
   if (sat.satEl >= 0.0) {
-    targetAz = sat.satAz;
-    targetEl = sat.satEl;
     if (!passInProgress) {
       passInProgress = true;
       passMaxEl      = sat.satEl;
