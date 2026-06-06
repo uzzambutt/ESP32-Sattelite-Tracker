@@ -197,26 +197,66 @@ const char index_html[] PROGMEM = R"rawliteral(
     } catch(e){ document.getElementById('passLogBody').innerText='Failed to load.'; }
   }
 
-  function fetchCelestrak() {
-    const btn=document.getElementById('btn-fetch');
-    btn.innerText='DOWNLOADING...';
-    fetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle')
-    .then(r=>r.text())
-    .then(txt=>{
-      allTleData=[];
-      const lines=txt.split('\n');
-      for(let i=0;i<lines.length-2;i+=3){
-        const name=lines[i].trim();
-        if(name.length>0 && lines[i+1].startsWith('1 ') && lines[i+2].startsWith('2 ')){
-          if(!name.includes('STARLINK') && !name.includes('ONEWEB') && !name.includes('FLOCK'))
-            allTleData.push({name, l1:lines[i+1].trim(), l2:lines[i+2].trim()});
+  function processTLEText(txt, btn) {
+    allTleData = [];
+    const lines = txt.split('\n');
+    for(let i=0; i<lines.length-2; i+=3){
+      const name = lines[i].trim();
+      if(name.length > 0 && lines[i+1].startsWith('1 ') && lines[i+2].startsWith('2 ')){
+        if(!name.includes('STARLINK') && !name.includes('ONEWEB') && !name.includes('FLOCK')) {
+          allTleData.push({name, l1:lines[i+1].trim(), l2:lines[i+2].trim()});
         }
       }
-      btn.innerText='DB LOADED ('+allTleData.length+' TARGETS)';
-      btn.style.color='#10b981'; btn.style.borderColor='#10b981';
-      document.getElementById('sat-filter').disabled=false;
-      filterSats();
-    }).catch(()=>{ btn.innerText='DOWNLOAD FAILED'; });
+    }
+    btn.innerText = 'DB LOADED (' + allTleData.length + ' TARGETS)';
+    btn.style.color = '#10b981'; btn.style.borderColor = '#10b981';
+    document.getElementById('sat-filter').disabled = false;
+    filterSats();
+  }
+
+  function fetchCelestrak() {
+    const btn = document.getElementById('btn-fetch');
+    
+    // Check Local Storage Cache First (Valid for 4 hours)
+    const cachedDB = localStorage.getItem('celestrakDB');
+    const cacheTime = localStorage.getItem('celestrakTime');
+    const now = new Date().getTime();
+    
+    if (cachedDB && cacheTime && (now - cacheTime < 14400000)) {
+       btn.innerText = 'LOADING FROM BROWSER CACHE...';
+       setTimeout(() => processTLEText(cachedDB, btn), 500);
+       return;
+    }
+
+    btn.innerText = 'DOWNLOADING (PLEASE WAIT)...';
+    fetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle')
+    .then(r => {
+      if(r.status === 429) throw new Error("RATE LIMITED");
+      if(!r.ok) throw new Error("NETWORK ERROR");
+      return r.text();
+    })
+    .then(txt => {
+      // Save successful pull to cache
+      localStorage.setItem('celestrakDB', txt);
+      localStorage.setItem('celestrakTime', now);
+      processTLEText(txt, btn);
+    })
+    .catch(e => {
+      if (e.message === "RATE LIMITED") {
+         btn.innerText = 'RATE LIMITED! LOADING OLD CACHE...';
+      } else {
+         btn.innerText = 'DOWNLOAD FAILED. LOADING CACHE...';
+      }
+      
+      // Fallback to expired cache if available so UI still works
+      if (cachedDB) {
+         setTimeout(() => processTLEText(cachedDB, btn), 1500);
+      } else {
+         btn.style.borderColor = "#ef4444";
+         btn.style.color = "#ef4444";
+         btn.innerText = 'API BLOCKED. NO CACHE AVAILABLE.';
+      }
+    });
   }
 
   function filterSats() {
@@ -412,6 +452,7 @@ struct PathPoint { float az, el; };
 PathPoint globalPath[45];
 volatile int globalPathLen  = 0;
 unsigned long lastPathCalc = 0;
+volatile bool newPathReady = false; 
 
 // Dynamic Cache
 float  prev_cAz = -999, prev_cEl = -999;
@@ -430,8 +471,7 @@ long   prev_countdown = -999;
 int prev_antX = -1, prev_antY = -1;
 int prev_satX = -1, prev_satY = -1;
 
-int terminalY = 30; // Terminal line tracking
-
+int terminalY = 30; 
 TaskHandle_t Core0Task;
 
 // =============================================
@@ -487,15 +527,13 @@ String buildTelemetryJson() {
 void drawBootScreen() {
   tft.fillScreen(C_BLACK);
   
-  // Header Text
   tft.setTextColor(C_CYAN);
   tft.setTextSize(2);
   tft.setCursor(10, 15);
   tft.print("ESP32 SATELLITE");
   tft.setCursor(10, 35);
-  tft.print("TRACKER V6.2");
+  tft.print("TRACKER V6.4");
   
-  // Developer Tag
   tft.setTextColor(C_DGRAY);
   tft.setTextSize(1);
   tft.setCursor(10, 65);
@@ -504,9 +542,7 @@ void drawBootScreen() {
   tft.setCursor(10, 80);
   tft.print("Muhammad Uzzam Butt");
 
-  // QR Code Generation (Using Heap Memory to prevent Stack Overflow)
   const char* url = "https://github.com/uzzambutt/ESP32-Sattelite-Tracker";
-  
   uint8_t *qrcode = (uint8_t *)malloc(qrcodegen_BUFFER_LEN_MAX);
   uint8_t *tempBuffer = (uint8_t *)malloc(qrcodegen_BUFFER_LEN_MAX);
   
@@ -517,13 +553,11 @@ void drawBootScreen() {
       if (ok) {
           int qrSize = qrcodegen_getSize(qrcode);
           int pixelSize = 3; 
-          int offsetX = (240 - (qrSize * pixelSize)) / 2; // Center horizontally
+          int offsetX = (240 - (qrSize * pixelSize)) / 2; 
           int offsetY = 140;
 
-          // White backdrop for scanner contrast
           tft.fillRect(offsetX - 4, offsetY - 4, (qrSize * pixelSize) + 8, (qrSize * pixelSize) + 8, C_WHITE);
           
-          // Plot individual QR modules
           for (int y = 0; y < qrSize; y++) {
             for (int x = 0; x < qrSize; x++) {
               if (qrcodegen_getModule(qrcode, x, y)) {
@@ -533,18 +567,12 @@ void drawBootScreen() {
           }
       }
   }
-  
-  // Free heap memory immediately
   if (qrcode) free(qrcode);
   if (tempBuffer) free(tempBuffer);
 }
 
-// =============================================
-//   TFT — LIVE BOOT TERMINAL LOG
-// =============================================
 void printBootTerminal(String msg) {
   Serial.println("[BOOT] " + msg);
-  
   if (terminalY > 300) {
       tft.fillScreen(C_BLACK);
       tft.setTextColor(C_CYAN);
@@ -554,16 +582,14 @@ void printBootTerminal(String msg) {
       tft.drawFastHLine(0, 20, 240, C_DGRAY);
       terminalY = 30;
   }
-  
   tft.setTextSize(1);
   tft.setCursor(5, terminalY);
   tft.setTextColor(C_GREEN);
   tft.print("> ");
   tft.setTextColor(C_WHITE);
   tft.print(msg);
-  
   terminalY += 12;
-  delay(150); // Slight delay for terminal visual effect
+  delay(150); 
 }
 
 // =============================================
@@ -572,12 +598,10 @@ void printBootTerminal(String msg) {
 void tftDrawStaticFrame() {
   tft.fillScreen(C_BLACK);
   
-  // Main Header
   tft.fillRect(0, 0, 240, 22, C_DBLUE);
   tft.setTextColor(C_WHITE); tft.setTextSize(1);
   tft.setCursor(6, 7); tft.print("AEROSPACE CMD TELEMETRY");
 
-  // Box 1: Core Telemetry
   tft.drawRoundRect(2, 26, 236, 68, 4, C_DGRAY);
   tft.setTextColor(C_CYAN);
   tft.setCursor(8, 32);  tft.print("TARGET:");
@@ -586,7 +610,6 @@ void tftDrawStaticFrame() {
   tft.setCursor(8, 55);  tft.print("AZ:");
   tft.setCursor(120, 55); tft.print("EL:");
 
-  // Box 2: Link & Status
   tft.drawRoundRect(2, 98, 236, 52, 4, C_DGRAY);
   tft.setCursor(8, 106);  tft.print("MODE:");
   tft.setCursor(8, 120);  tft.print("L4S :");
@@ -596,7 +619,6 @@ void tftDrawStaticFrame() {
   tft.setCursor(120, 120); tft.print("DIST:");
   tft.setCursor(120, 134); tft.print("RSSI:");
 
-  // Box 3: Orbital Prediction
   tft.drawRoundRect(2, 154, 236, 40, 4, C_DGRAY);
   tft.setTextColor(C_ORANGE); 
   tft.setCursor(8, 162); tft.print("AOS:");
@@ -604,7 +626,6 @@ void tftDrawStaticFrame() {
   tft.setCursor(8, 176); tft.print("LOS:");
   tft.setCursor(120, 176); tft.print("T-MINUS:");
 
-  // Box 4: Radar Grid
   tft.drawRoundRect(2, 198, 236, 120, 4, C_DGRAY);
   int cx=120, cy=258, r=52;
   tft.drawCircle(cx, cy, r,    C_DGRAY);
@@ -758,7 +779,7 @@ void tftUpdateDynamic() {
 }
 
 // =============================================
-//   TFT — RADAR ENGINE
+//   TFT — SURGICAL RADAR WIPE
 // =============================================
 void tftRadarUpdate() {
   if(spiLock) return;
@@ -771,19 +792,31 @@ void tftRadarUpdate() {
     y = cy + (int)(rr * sinf(rad));
   };
 
-  if (prev_antX >= 0) {
-    tft.drawLine(cx, cy, prev_antX, prev_antY, C_BLACK);
-    tft.fillCircle(prev_antX, prev_antY, 3, C_BLACK);
-  }
-  if (prev_satX >= 0) {
-    tft.fillCircle(prev_satX, prev_satY, 4, C_BLACK);
-    tft.drawCircle(prev_satX, prev_satY, 7, C_BLACK);
-  }
+  if (newPathReady) {
+    tft.fillCircle(cx, cy, r - 1, C_BLACK);
+    
+    tft.drawCircle(cx, cy, r*2/3, C_DGRAY);
+    tft.drawCircle(cx, cy, r*1/3, C_DGRAY);
+    tft.drawFastVLine(cx, cy-r+1, r*2-2, C_DGRAY);
+    tft.drawFastHLine(cx-r+1, cy, r*2-2, C_DGRAY);
 
-  tft.drawCircle(cx, cy, r*2/3, C_DGRAY);
-  tft.drawCircle(cx, cy, r*1/3, C_DGRAY);
-  tft.drawFastVLine(cx, cy-r+1, r*2-2, C_DGRAY);
-  tft.drawFastHLine(cx-r+1, cy, r*2-2, C_DGRAY);
+    prev_antX = -1; 
+    prev_satX = -1;
+    newPathReady = false; 
+  } else {
+    if (prev_antX >= 0) {
+      tft.drawLine(cx, cy, prev_antX, prev_antY, C_BLACK);
+      tft.fillCircle(prev_antX, prev_antY, 3, C_BLACK);
+    }
+    if (prev_satX >= 0) {
+      tft.fillCircle(prev_satX, prev_satY, 4, C_BLACK);
+      tft.drawCircle(prev_satX, prev_satY, 7, C_BLACK);
+    }
+    tft.drawCircle(cx, cy, r*2/3, C_DGRAY);
+    tft.drawCircle(cx, cy, r*1/3, C_DGRAY);
+    tft.drawFastVLine(cx, cy-r+1, r*2-2, C_DGRAY);
+    tft.drawFastHLine(cx-r+1, cy, r*2-2, C_DGRAY);
+  }
 
   int len = globalPathLen;
   if (len > 1) {
@@ -792,6 +825,7 @@ void tftRadarUpdate() {
       int px, py;
       toXY(globalPath[i].az, globalPath[i].el, px, py);
       if (lastX != -1) tft.drawLine(lastX, lastY, px, py, C_GREEN);
+      
       if (i == 0) {
         tft.setTextColor(C_GREEN); tft.setTextSize(1);
         tft.setCursor(px - 6, py - 8); tft.print("A");
@@ -902,6 +936,7 @@ void setupWebServer() {
           name.toCharArray(satName, 25); l1.toCharArray(tleLine1, 70); l2.toCharArray(tleLine2, 70);
           sat.site(obsLat, obsLon, obsAlt); sat.init(satName, tleLine1, tleLine2);
           tleLoaded = true; lastPathCalc = 0; prev_sat[0] = '\0';
+          newPathReady = true; 
           Serial.printf("[SGP4] Local Keplerian Elements Updated for: %s\n", satName);
         }
       }
@@ -983,6 +1018,7 @@ void calculatePathPrediction() {
   
   nextMaxEl = tempMaxEl;
   globalPathLen = tempLen;
+  newPathReady = true; 
   Serial.printf("[SGP4] Look4Sat Array Projected: %d Nodes, MaxEl: %.1f*\n", globalPathLen, nextMaxEl);
 }
 
@@ -1003,9 +1039,16 @@ void Core0TaskCode(void *pvParameters) {
       if (WiFi.status() != WL_CONNECTED) { WiFi.reconnect(); }
     }
 
-    if (!tcpClient || !tcpClient.connected()) tcpClient = tcpServer.available();
+    if (!tcpClient || !tcpClient.connected()) {
+        tcpClient = tcpServer.available();
+        if(tcpClient) {
+             // Disable Nagle's algorithm for low-latency L4S telemetry
+             tcpClient.setNoDelay(true);
+        }
+    }
+    
     if (tcpClient && tcpClient.available()) {
-      tcpClient.setTimeout(10);
+      tcpClient.setTimeout(5); // Extremely short timeout to prevent L4S blocking
       String cmd = tcpClient.readStringUntil('\n');
       if (cmd.length() > 0) {
         if (!onboardMode) {
@@ -1039,7 +1082,7 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   Serial.println("\n====================================");
-  Serial.println(" ESP32 Aerospace Tracker v6.2 (ST7789)");
+  Serial.println(" ESP32 Aerospace Tracker v6.4 (ST7789)");
   Serial.println("====================================");
 
   esp_task_wdt_init(30, true);
@@ -1055,18 +1098,16 @@ void setup() {
   tft.setRotation(0);       
   tft.invertDisplay(false); 
 
-  // Phase 1: Logo & Repository QR Code
   drawBootScreen();
   delay(5000); 
 
-  // Phase 2: Switch to System Boot Terminal
   tft.fillScreen(C_BLACK);
   tft.setTextColor(C_CYAN);
   tft.setTextSize(1);
   tft.setCursor(5, 10);
   tft.print("SYSTEM BOOT SEQUENCE...");
   tft.drawFastHLine(0, 20, 240, C_DGRAY);
-  terminalY = 30; // Reset terminal tracking cursor
+  terminalY = 30; 
 
   printBootTerminal("Initializing LittleFS Engine...");
   if (!LittleFS.begin(false)) { LittleFS.begin(true); }
@@ -1134,7 +1175,6 @@ void setup() {
   printBootTerminal("Transferring to Core 1 UI...");
   delay(1000); 
 
-  // Phase 3: Launch Main Telemetry UI
   tftDrawStaticFrame();
   digitalWrite(ENABLE_PIN, LOW);
 
