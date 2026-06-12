@@ -17,147 +17,205 @@
 #include "qrcodegen.h"
 #include "secrets.h"
 
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MPU6050 GYRO/ACCEL (GY-521) — UNCOMMENT TO ENABLE       ║
+// ║  Wiring: VCC->3.3V  GND->GND  SDA->GPIO21  SCL->GPIO22   ║
+// ╚══════════════════════════════════════════════════════════╝
+// #include <Wire.h>
+// #define MPU_ADDR      0x68     // AD0 low = 0x68, AD0 high = 0x69
+// #define MPU_SDA       21
+// #define MPU_SCL       22
+// volatile float mpuPitch = 0;   // physical elevation of antenna (deg)
+// volatile float mpuRoll  = 0;
+// volatile bool  mpuOK    = false;
+// unsigned long  lastMpuRead = 0;
+// const float MPU_CORRECT_THRESH = 2.0;  // deg error before auto-correct
+//
+// bool mpuInit() {
+//   Wire.begin(MPU_SDA, MPU_SCL);
+//   Wire.beginTransmission(MPU_ADDR);
+//   Wire.write(0x6B); Wire.write(0x00);          // wake up
+//   if (Wire.endTransmission(true) != 0) return false;
+//   Wire.beginTransmission(MPU_ADDR);
+//   Wire.write(0x1C); Wire.write(0x00);          // accel ±2g
+//   Wire.endTransmission(true);
+//   Wire.beginTransmission(MPU_ADDR);
+//   Wire.write(0x1B); Wire.write(0x00);          // gyro ±250°/s
+//   Wire.endTransmission(true);
+//   return true;
+// }
+//
+// void mpuRead() {
+//   Wire.beginTransmission(MPU_ADDR);
+//   Wire.write(0x3B);                            // ACCEL_XOUT_H
+//   if (Wire.endTransmission(false) != 0) { mpuOK = false; return; }
+//   Wire.requestFrom((uint8_t)MPU_ADDR, (uint8_t)14, (uint8_t)true);
+//   if (Wire.available() < 14) { mpuOK = false; return; }
+//   int16_t ax = (Wire.read() << 8) | Wire.read();
+//   int16_t ay = (Wire.read() << 8) | Wire.read();
+//   int16_t az = (Wire.read() << 8) | Wire.read();
+//   Wire.read(); Wire.read();                    // temp (skip)
+//   int16_t gx = (Wire.read() << 8) | Wire.read();
+//   int16_t gy = (Wire.read() << 8) | Wire.read();
+//   int16_t gz = (Wire.read() << 8) | Wire.read();
+//   (void)gx; (void)gy; (void)gz;
+//   // Accel-derived tilt angles
+//   float accPitch = atan2f((float)ax, sqrtf((float)ay*ay + (float)az*az)) * 180.0f / PI;
+//   float accRoll  = atan2f((float)ay, (float)az) * 180.0f / PI;
+//   // Complementary smoothing (accel-only here; gyro fusion optional)
+//   mpuPitch = 0.9f * mpuPitch + 0.1f * accPitch;
+//   mpuRoll  = 0.9f * mpuRoll  + 0.1f * accRoll;
+//   mpuOK = true;
+// }
+//
+// // Wind/knock auto-correction: if the physical elevation measured by
+// // the IMU disagrees with where the steppers THINK they are, re-zero
+// // the elevation stepper to the IMU truth.
+// void mpuStabilize() {
+//   if (!mpuOK || isMoving) return;              // only correct when idle
+//   float physEl = mpuPitch;                     // mount so pitch = elevation
+//   float err = physEl - currentEl;
+//   if (fabsf(err) > MPU_CORRECT_THRESH) {
+//     Serial.printf("[IMU] Drift %.1f deg detected! Re-zeroing EL axis.\n", err);
+//     elStepper.setCurrentPosition((long)(physEl * STEPS_PER_DEG));
+//   }
+// }
+
 // ================= WEB DASHBOARD =================
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>AEROSPACE CMD</title><style>
-@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@400;600;700&display=swap');
+<title>ORBITAL OPS</title><style>
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@500;600;700&display=swap');
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Inter',sans-serif;color:#e2e8f0;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:20px;
-background:#05060f;
-background-image:radial-gradient(ellipse 80% 50% at 20% -10%,rgba(124,58,237,.18),transparent),
-radial-gradient(ellipse 60% 40% at 90% 110%,rgba(34,211,238,.14),transparent),
-radial-gradient(ellipse 50% 30% at 50% 50%,rgba(236,72,153,.05),transparent);
-background-attachment:fixed}
-h1{font-family:'Share Tech Mono',monospace;font-size:2rem;letter-spacing:5px;margin:15px 0 5px;text-align:center;
-background:linear-gradient(90deg,#22d3ee,#a78bfa,#f472b6);-webkit-background-clip:text;background-clip:text;color:transparent;
-filter:drop-shadow(0 0 14px rgba(34,211,238,.45))}
-.subtitle{font-size:.7rem;color:#64748b;letter-spacing:4px;margin-bottom:22px;text-align:center}
-.badge-container{display:flex;gap:10px;margin-bottom:25px;flex-wrap:wrap;justify-content:center}
-.status-badge{padding:7px 18px;border-radius:20px;font-size:.72rem;font-weight:700;letter-spacing:2px;text-transform:uppercase;border:1px solid transparent}
-.status-tracking{background:rgba(16,185,129,.12);color:#34d399;border-color:rgba(16,185,129,.45);box-shadow:0 0 16px rgba(16,185,129,.25)}
-.status-offline{background:rgba(239,68,68,.12);color:#f87171;border-color:rgba(239,68,68,.45);box-shadow:0 0 16px rgba(239,68,68,.25)}
-.status-mode{background:rgba(167,139,250,.12);color:#c4b5fd;border-color:rgba(167,139,250,.45);box-shadow:0 0 16px rgba(167,139,250,.2)}
-.container{display:grid;grid-template-columns:1fr;gap:22px;width:100%;max-width:540px}
-.panel{background:rgba(13,18,38,.78);backdrop-filter:blur(12px);border:1px solid rgba(148,163,184,.14);border-radius:16px;padding:22px;
-box-shadow:0 10px 40px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.04);position:relative;overflow:hidden}
-.panel::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,#22d3ee,#a78bfa,#f472b6,transparent);opacity:.7}
-.panel-header{font-size:.72rem;color:#94a3b8;letter-spacing:3px;text-transform:uppercase;margin-bottom:16px;border-bottom:1px solid rgba(148,163,184,.12);
-padding-bottom:9px;display:flex;align-items:center;gap:8px}
-.panel-header::before{content:'';width:7px;height:7px;border-radius:50%;background:#22d3ee;box-shadow:0 0 10px #22d3ee;animation:pulse 2s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-.telemetry-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:20px}
-.data-card{background:rgba(2,6,23,.85);border:1px solid rgba(148,163,184,.12);border-radius:12px;padding:16px;text-align:center;position:relative;overflow:hidden}
-.data-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
-.data-card.az::before{background:linear-gradient(90deg,#06b6d4,#22d3ee);box-shadow:0 0 12px #22d3ee}
-.data-card.el::before{background:linear-gradient(90deg,#d946ef,#f472b6);box-shadow:0 0 12px #f472b6}
-.data-card.az .data-unit{color:#22d3ee}.data-card.el .data-unit{color:#f472b6}
-.data-card.az .data-value{text-shadow:0 0 18px rgba(34,211,238,.5)}
-.data-card.el .data-value{text-shadow:0 0 18px rgba(244,114,182,.5)}
-.data-label{font-size:.62rem;letter-spacing:3px;color:#64748b;text-transform:uppercase;margin-bottom:6px}
-.data-value{font-family:'Share Tech Mono',monospace;font-size:2.6rem;color:#f8fafc}
-.data-unit{font-size:1rem;vertical-align:super}
-.info-row{display:flex;justify-content:space-between;margin-bottom:9px;font-size:.85rem;border-bottom:1px dashed rgba(148,163,184,.12);padding-bottom:5px}
-.info-key{color:#64748b}.info-val{font-family:'Share Tech Mono',monospace;color:#cbd5e1}
-.highlight{color:#22d3ee;text-shadow:0 0 8px rgba(34,211,238,.4)}
-.hl-pink{color:#f472b6;text-shadow:0 0 8px rgba(244,114,182,.4)}
-.hl-lime{color:#a3e635;text-shadow:0 0 8px rgba(163,230,53,.4)}
-input,select,button{width:100%;padding:13px;margin-bottom:12px;background:rgba(2,6,23,.85);border:1px solid rgba(148,163,184,.18);color:#e2e8f0;border-radius:10px;font-size:.85rem;outline:none;transition:.2s}
-input:focus,select:focus{border-color:#22d3ee;box-shadow:0 0 14px rgba(34,211,238,.25)}
-button{background:linear-gradient(135deg,rgba(34,211,238,.15),rgba(167,139,250,.15));color:#22d3ee;border:1px solid rgba(34,211,238,.5);cursor:pointer;font-weight:700;letter-spacing:1.5px;text-transform:uppercase}
-button:hover{background:linear-gradient(135deg,#22d3ee,#a78bfa);color:#020617;box-shadow:0 0 24px rgba(34,211,238,.5)}
-.input-group{display:flex;gap:8px}.input-group input{margin-bottom:0}.input-group button{margin-bottom:0;width:auto;flex-shrink:0}
-.radar-wrapper{display:flex;justify-content:center;margin:20px 0}
-canvas{background:radial-gradient(circle,#020a17 0%,#01040c 100%);border-radius:50%;box-shadow:0 0 40px rgba(34,211,238,.18),inset 0 0 60px rgba(34,211,238,.06)}
-.joystick{display:grid;grid-template-columns:repeat(3,52px);gap:6px;justify-content:center;margin-top:15px}
-.joystick button{padding:15px 0;margin:0;background:rgba(15,23,42,.9);border:1px solid rgba(148,163,184,.2);color:#94a3b8;border-radius:10px}
-.joystick button:hover{background:linear-gradient(135deg,#22d3ee,#a78bfa);color:#020617}
-.sat-filter{width:100%;padding:11px;margin-bottom:8px;background:rgba(2,6,23,.85);border:1px solid rgba(34,211,238,.4);color:#22d3ee;border-radius:10px;font-size:.85rem;outline:none}
-.sat-filter::placeholder{color:rgba(34,211,238,.35)}
-.conn-lost{display:none;position:fixed;top:0;left:0;width:100%;background:linear-gradient(90deg,#dc2626,#f43f5e);color:#fff;text-align:center;padding:9px;font-size:.8rem;font-weight:bold;letter-spacing:2px;z-index:999}
+:root{--grn:#00ff9d;--amb:#ffb347;--red:#ff4757;--dim:#3a4a52;--txt:#c8d6dd;--bg:#060a0d;--pnl:#0b1216}
+body{font-family:'Rajdhani',sans-serif;background:var(--bg);color:var(--txt);min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:16px;
+background-image:linear-gradient(rgba(0,255,157,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,255,157,.03) 1px,transparent 1px);
+background-size:32px 32px}
+body::after{content:'';position:fixed;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,transparent 0 2px,rgba(0,0,0,.08) 2px 4px)}
+.topbar{width:100%;max-width:980px;display:flex;justify-content:space-between;align-items:center;border:1px solid var(--dim);
+background:var(--pnl);padding:10px 16px;margin-bottom:14px;position:relative}
+.topbar::before,.topbar::after{content:'';position:absolute;width:10px;height:10px;border:2px solid var(--grn)}
+.topbar::before{top:-2px;left:-2px;border-right:0;border-bottom:0}
+.topbar::after{bottom:-2px;right:-2px;border-left:0;border-top:0}
+.logo{font-family:'Share Tech Mono',monospace;font-size:1.3rem;color:var(--grn);letter-spacing:4px;text-shadow:0 0 12px rgba(0,255,157,.5)}
+.logo span{color:var(--amb)}
+.clock{font-family:'Share Tech Mono',monospace;font-size:1.1rem;color:var(--amb)}
+.badges{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;justify-content:center}
+.bdg{padding:5px 14px;font-size:.7rem;font-weight:700;letter-spacing:2px;border:1px solid var(--dim);background:var(--pnl);text-transform:uppercase}
+.bdg.ok{color:var(--grn);border-color:var(--grn);box-shadow:0 0 12px rgba(0,255,157,.2)}
+.bdg.err{color:var(--red);border-color:var(--red);box-shadow:0 0 12px rgba(255,71,87,.2)}
+.bdg.inf{color:var(--amb);border-color:var(--amb)}
+.statstrip{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;width:100%;max-width:980px;margin-bottom:14px}
+.stat{background:var(--pnl);border:1px solid var(--dim);padding:12px;text-align:center;position:relative}
+.stat::before{content:'';position:absolute;top:0;left:0;width:24px;height:2px;background:var(--grn)}
+.stat .lbl{font-size:.6rem;letter-spacing:3px;color:#5a6e78;text-transform:uppercase}
+.stat .val{font-family:'Share Tech Mono',monospace;font-size:1.9rem;color:var(--grn);text-shadow:0 0 14px rgba(0,255,157,.4)}
+.stat.a .val{color:var(--amb);text-shadow:0 0 14px rgba(255,179,71,.4)}
+.stat .unit{font-size:.8rem;color:#5a6e78}
+.grid{display:grid;grid-template-columns:1fr;gap:14px;width:100%;max-width:980px}
+@media(min-width:880px){.grid{grid-template-columns:1fr 1fr}.statstrip{grid-template-columns:repeat(4,1fr)}}
+.panel{background:var(--pnl);border:1px solid var(--dim);padding:18px;position:relative}
+.panel::before,.panel::after{content:'';position:absolute;width:8px;height:8px;border:2px solid var(--grn)}
+.panel::before{top:-2px;left:-2px;border-right:0;border-bottom:0}
+.panel::after{bottom:-2px;right:-2px;border-left:0;border-top:0}
+.ph{font-family:'Share Tech Mono',monospace;font-size:.72rem;color:var(--grn);letter-spacing:3px;margin-bottom:14px;
+border-bottom:1px solid var(--dim);padding-bottom:8px;display:flex;align-items:center;gap:8px}
+.ph::before{content:'▸';color:var(--amb)}
+.row{display:flex;justify-content:space-between;margin-bottom:8px;font-size:.9rem;border-bottom:1px dotted #1c272d;padding-bottom:4px}
+.k{color:#5a6e78;letter-spacing:1px}.v{font-family:'Share Tech Mono',monospace;color:var(--txt)}
+.vg{color:var(--grn)}.va{color:var(--amb)}.vr{color:var(--red)}
+input,select,button{width:100%;padding:11px;margin-bottom:10px;background:#060c10;border:1px solid var(--dim);color:var(--txt);font-size:.85rem;outline:none;font-family:'Rajdhani',sans-serif;font-weight:600}
+input:focus,select:focus{border-color:var(--grn);box-shadow:0 0 10px rgba(0,255,157,.2)}
+button{background:rgba(0,255,157,.07);color:var(--grn);border:1px solid var(--grn);cursor:pointer;letter-spacing:2px;text-transform:uppercase;transition:.15s}
+button:hover{background:var(--grn);color:#03110a;box-shadow:0 0 20px rgba(0,255,157,.5)}
+.ig{display:flex;gap:8px}.ig input{margin-bottom:0}.ig button{margin-bottom:0;width:auto;flex-shrink:0}
+.radwrap{display:flex;justify-content:center;margin:10px 0}
+canvas{background:radial-gradient(circle,#08120e 0%,#040a07 100%);border-radius:50%;box-shadow:0 0 30px rgba(0,255,157,.15),inset 0 0 50px rgba(0,255,157,.05)}
+.joy{display:grid;grid-template-columns:repeat(3,50px);gap:5px;justify-content:center;margin-top:12px}
+.joy button{padding:13px 0;margin:0;background:#0b1216;border:1px solid var(--dim);color:#5a6e78}
+.joy button:hover{background:var(--grn);color:#03110a}
+.flt{border-color:var(--amb)!important;color:var(--amb)!important}
+.flt::placeholder{color:rgba(255,179,71,.4)}
+.lost{display:none;position:fixed;top:0;left:0;width:100%;background:var(--red);color:#fff;text-align:center;padding:8px;font-size:.8rem;font-weight:bold;letter-spacing:3px;z-index:999}
 </style></head><body>
-<div class="conn-lost" id="connLost">⚠ LINK LOST — REESTABLISHING...</div>
-<h1>AEROSPACE CMD</h1><p class="subtitle">ESP32 ORBITAL GROUND STATION</p>
-<div class="badge-container">
-<div class="status-badge status-offline" id="statusBadge">CONNECTING...</div>
-<div class="status-badge status-mode" id="modeBadge">--</div>
+<div class="lost" id="connLost">⚠ DOWNLINK LOST — REACQUIRING</div>
+<div class="topbar"><div class="logo">ORBITAL<span>OPS</span></div><div class="clock" id="utcClock">--:--:--</div></div>
+<div class="badges">
+<div class="bdg err" id="statusBadge">CONNECTING</div>
+<div class="bdg inf" id="modeBadge">--</div>
+<div class="bdg inf" id="satBadge">NO TARGET</div>
 </div>
-<div class="container">
-<div class="panel"><div class="panel-header">Live Telemetry</div>
-<div class="telemetry-grid">
-<div class="data-card az"><div class="data-label">Azimuth</div><div class="data-value" id="curAz">--<span class="data-unit">°</span></div></div>
-<div class="data-card el"><div class="data-label">Elevation</div><div class="data-value" id="curEl">--<span class="data-unit">°</span></div></div>
+<div class="statstrip">
+<div class="stat"><div class="lbl">Azimuth</div><div class="val" id="curAz">---</div><div class="unit">DEG</div></div>
+<div class="stat a"><div class="lbl">Elevation</div><div class="val" id="curEl">---</div><div class="unit">DEG</div></div>
+<div class="stat"><div class="lbl">Range</div><div class="val" id="satDist">---</div><div class="unit">KM</div></div>
+<div class="stat a"><div class="lbl">Doppler</div><div class="val" id="doppler">---</div><div class="unit">HZ</div></div>
 </div>
-<div class="info-row"><span class="info-key">Target AZ</span><span class="info-val highlight" id="tgtAz">--°</span></div>
-<div class="info-row"><span class="info-key">Target EL</span><span class="info-val hl-pink" id="tgtEl">--°</span></div>
-<div class="info-row"><span class="info-key">Tracking Target</span><span class="info-val hl-lime" id="satName">--</span></div>
-<div class="info-row"><span class="info-key">Doppler Shift</span><span class="info-val highlight" id="doppler">-- Hz</span></div>
-<div class="info-row"><span class="info-key">Slant Range</span><span class="info-val" id="satDist">-- km</span></div>
-<div class="info-row"><span class="info-key">WiFi Signal</span><span class="info-val" id="rssi">-- dBm</span></div>
-<div class="info-row"><span class="info-key">System Uptime</span><span class="info-val" id="uptime">--</span></div>
-<div class="info-row" style="border:none;margin-bottom:0"><span class="info-key">Free Memory</span><span class="info-val" id="ram">-- KB</span></div>
-</div>
-<div class="panel"><div class="panel-header">Tactical Radar</div>
-<div class="radar-wrapper"><canvas id="radar" width="280" height="280"></canvas></div>
-<div class="joystick">
+<div class="grid">
+<div class="panel"><div class="ph">TACTICAL RADAR</div>
+<div class="radwrap"><canvas id="radar" width="280" height="280"></canvas></div>
+<div class="joy">
 <div></div><button onclick="nudge(0,5)">▲</button><div></div>
 <button onclick="nudge(-5,0)">◀</button><div></div><button onclick="nudge(5,0)">▶</button>
 <div></div><button onclick="nudge(0,-5)">▼</button><div></div>
 </div></div>
-<div class="panel"><div class="panel-header">Orbital Database — SGP4</div>
-<div class="info-row" style="border:none;margin-bottom:12px">
-<span class="info-key" style="line-height:2.5">Tracking Engine</span>
-<select id="mode-select" onchange="updateMode()" style="width:170px;margin:0">
-<option value="0">External (Look4Sat)</option><option value="1">Internal SGP4</option>
-</select></div>
-<div class="input-group">
-<input type="text" id="grid-input" placeholder="Observer Grid (e.g. MM71dl)" maxlength="6">
-<button onclick="updateGrid()">SET GRID</button></div>
-<button onclick="fetchCelestrak()" id="btn-fetch">1. DOWNLOAD CELESTRAK DB</button>
-<input type="text" id="sat-filter" class="sat-filter" placeholder="🔍 Filter satellites (e.g. NOAA, ISS)..." oninput="filterSats()" disabled>
-<select id="sat-select" size="4" style="height:84px"><option>Awaiting Database...</option></select>
-<button onclick="pushTLE()" id="btn-push">2. UPLOAD TLE TO HARDWARE</button>
+<div>
+<div class="panel" style="margin-bottom:14px"><div class="ph">TELEMETRY</div>
+<div class="row"><span class="k">TARGET AZ / EL</span><span class="v vg" id="tgt">--° / --°</span></div>
+<div class="row"><span class="k">WIFI SIGNAL</span><span class="v" id="rssi">-- dBm</span></div>
+<div class="row"><span class="k">UPTIME</span><span class="v" id="uptime">--</span></div>
+<div class="row" style="border:none"><span class="k">FREE MEMORY</span><span class="v" id="ram">-- KB</span></div>
 </div>
-<div class="panel"><div class="panel-header">Pass Log</div>
-<button onclick="loadPassLog()" style="margin-bottom:12px">REFRESH PASS LOG</button>
-<div id="passLogBody" style="font-family:monospace;font-size:.8rem;color:#94a3b8">No passes logged yet.</div>
+<div class="panel"><div class="ph">ORBITAL DATABASE</div>
+<div class="row" style="border:none;margin-bottom:10px">
+<span class="k" style="line-height:2.6">ENGINE</span>
+<select id="mode-select" onchange="updateMode()" style="width:170px;margin:0">
+<option value="0">EXTERNAL (LOOK4SAT)</option><option value="1">INTERNAL SGP4</option>
+</select></div>
+<div class="ig"><input type="text" id="grid-input" placeholder="Grid (MM71dl)" maxlength="6"><button onclick="updateGrid()">SET</button></div>
+<button onclick="fetchCelestrak()" id="btn-fetch">1 ▸ DOWNLOAD CELESTRAK DB</button>
+<input type="text" id="sat-filter" class="flt" placeholder="FILTER TARGETS (NOAA, ISS...)" oninput="filterSats()" disabled>
+<select id="sat-select" size="4" style="height:84px"><option>AWAITING DATABASE</option></select>
+<button onclick="pushTLE()" id="btn-push">2 ▸ UPLOAD TLE TO HARDWARE</button>
+</div></div>
+<div class="panel" style="grid-column:1/-1"><div class="ph">PASS LOG</div>
+<button onclick="loadPassLog()" style="margin-bottom:10px">REFRESH LOG</button>
+<div id="passLogBody" style="font-family:'Share Tech Mono',monospace;font-size:.8rem;color:#5a6e78">NO PASSES RECORDED</div>
 </div></div>
 <script>
 let currentAz=0,currentEl=0,targetAz=0,targetEl=0;
 let allTleData=[],tleData=[],satPath=[],isGeo=false;
 let failCount=0,sweepAngle=0;
+setInterval(()=>{document.getElementById('utcClock').innerText=new Date().toISOString().substr(11,8)+' UTC'},1000);
 async function fetchTelemetry(){
  try{
   const r=await fetch('/api/status',{cache:'no-store'});
-  if(!r.ok)throw new Error();
+  if(!r.ok)throw 0;
   const d=await r.json();
   failCount=0;
   document.getElementById('connLost').style.display='none';
   currentAz=d.cAz;currentEl=d.cEl;targetAz=d.tAz;targetEl=d.tEl;isGeo=!!d.geo;
-  document.getElementById('curAz').innerHTML=currentAz.toFixed(1).padStart(5,'0')+'<span class="data-unit">°</span>';
-  document.getElementById('curEl').innerHTML=currentEl.toFixed(1).padStart(4,'0')+'<span class="data-unit">°</span>';
-  document.getElementById('tgtAz').innerText=targetAz.toFixed(1)+'°';
-  document.getElementById('tgtEl').innerText=targetEl.toFixed(1)+'°';
-  document.getElementById('satName').innerText=d.sat+(isGeo?' [GEO]':'');
-  document.getElementById('ram').innerText=d.freeHeap+' KB';
-  document.getElementById('doppler').innerText=(d.doppler||0).toFixed(0)+' Hz';
-  document.getElementById('satDist').innerText=(d.dist||0).toFixed(0)+' km';
+  document.getElementById('curAz').innerText=currentAz.toFixed(1);
+  document.getElementById('curEl').innerText=currentEl.toFixed(1);
+  document.getElementById('satDist').innerText=(d.dist||0).toFixed(0);
+  document.getElementById('doppler').innerText=(d.doppler||0).toFixed(0);
+  document.getElementById('tgt').innerText=targetAz.toFixed(1)+'° / '+targetEl.toFixed(1)+'°';
   document.getElementById('rssi').innerText=d.rssi+' dBm';
+  document.getElementById('ram').innerText=d.freeHeap+' KB';
   const up=d.uptime;
-  document.getElementById('uptime').innerText=`${Math.floor(up/3600)}h ${Math.floor((up%3600)/60)}m ${up%60}s`;
+  document.getElementById('uptime').innerText=Math.floor(up/3600)+'h '+Math.floor((up%3600)/60)+'m '+(up%60)+'s';
   document.getElementById('grid-input').placeholder=d.grid;
   document.getElementById('mode-select').value=d.mode===1?"1":"0";
-  const badge=document.getElementById('statusBadge');
-  badge.className='status-badge status-tracking';
-  badge.innerText=d.isMoving?'⟳ SLEWING':'● LINK ACTIVE';
-  document.getElementById('modeBadge').innerText=d.mode===1?(isGeo?'SGP4: GEO LOCK':'SGP4: ONBOARD'):'MODE: EXT L4S';
+  const b=document.getElementById('statusBadge');
+  b.className='bdg ok';b.innerText=d.isMoving?'⟳ SLEWING':'● ONLINE';
+  document.getElementById('modeBadge').innerText=d.mode===1?(isGeo?'GEO LOCK':'SGP4 INT'):'EXT L4S';
+  document.getElementById('satBadge').innerText=d.sat;
  }catch(e){
-  failCount++;
-  if(failCount>3){
+  if(++failCount>3){
    document.getElementById('connLost').style.display='block';
-   document.getElementById('statusBadge').className='status-badge status-offline';
-   document.getElementById('statusBadge').innerText='✕ OFFLINE';
+   const b=document.getElementById('statusBadge');
+   b.className='bdg err';b.innerText='✕ OFFLINE';
   }
  }
 }
@@ -166,74 +224,60 @@ async function loadPassLog(){
  try{
   const r=await fetch('/api/passlog');const d=await r.json();
   const el=document.getElementById('passLogBody');
-  if(!d.length){el.innerText='No passes logged yet.';return;}
+  if(!d.length){el.innerText='NO PASSES RECORDED';return;}
   el.innerHTML=d.reverse().map(p=>
-   `<div style="margin-bottom:6px;border-bottom:1px solid rgba(148,163,184,.12);padding-bottom:4px">
-   <span style="color:#22d3ee">${p.sat}</span> &nbsp;
-   <span style="color:#64748b">${p.time}</span> &nbsp;
-   <span style="color:#34d399">MaxEl: ${parseFloat(p.maxEl).toFixed(1)}°</span></div>`).join('');
- }catch(e){document.getElementById('passLogBody').innerText='Failed to load.';}
+   `<div style="margin-bottom:5px;border-bottom:1px dotted #1c272d;padding-bottom:4px">
+   <span style="color:#00ff9d">${p.sat}</span> · <span style="color:#5a6e78">${p.time}</span> · 
+   <span style="color:#ffb347">MAX EL ${parseFloat(p.maxEl).toFixed(1)}°</span></div>`).join('');
+ }catch(e){document.getElementById('passLogBody').innerText='LOAD FAILED';}
 }
 function processTLEText(txt,btn){
  allTleData=[];
- const lines=txt.split('\n');
- for(let i=0;i<lines.length-2;i+=3){
-  const name=lines[i].trim();
-  if(name.length>0&&lines[i+1].startsWith('1 ')&&lines[i+2].startsWith('2 ')){
-   if(!name.includes('STARLINK')&&!name.includes('ONEWEB')&&!name.includes('FLOCK'))
-    allTleData.push({name,l1:lines[i+1].trim(),l2:lines[i+2].trim()});
+ const L=txt.split('\n');
+ for(let i=0;i<L.length-2;i+=3){
+  const n=L[i].trim();
+  if(n.length>0&&L[i+1].startsWith('1 ')&&L[i+2].startsWith('2 ')){
+   if(!n.includes('STARLINK')&&!n.includes('ONEWEB')&&!n.includes('FLOCK'))
+    allTleData.push({name:n,l1:L[i+1].trim(),l2:L[i+2].trim()});
   }
  }
  btn.innerText='DB LOADED ('+allTleData.length+' TARGETS)';
- btn.style.color='#34d399';btn.style.borderColor='#34d399';
+ btn.style.color='#00ff9d';
  document.getElementById('sat-filter').disabled=false;
  filterSats();
 }
 function fetchCelestrak(){
  const btn=document.getElementById('btn-fetch');
- const cachedDB=localStorage.getItem('celestrakDB');
- const cacheTime=localStorage.getItem('celestrakTime');
+ const c=localStorage.getItem('celestrakDB');
+ const ct=localStorage.getItem('celestrakTime');
  const now=Date.now();
- if(cachedDB&&cacheTime&&(now-cacheTime<14400000)){
-  btn.innerText='LOADING FROM BROWSER CACHE...';
-  setTimeout(()=>processTLEText(cachedDB,btn),500);return;
- }
- btn.innerText='DOWNLOADING (PLEASE WAIT)...';
+ if(c&&ct&&(now-ct<14400000)){btn.innerText='LOADING CACHE...';setTimeout(()=>processTLEText(c,btn),400);return;}
+ btn.innerText='DOWNLOADING...';
  fetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle')
- .then(r=>{
-  if(r.status===429)throw new Error("RATE LIMITED");
-  if(!r.ok)throw new Error("NETWORK ERROR");
-  return r.text();
- })
- .then(txt=>{
-  localStorage.setItem('celestrakDB',txt);
-  localStorage.setItem('celestrakTime',now);
-  processTLEText(txt,btn);
- })
+ .then(r=>{if(r.status===429)throw new Error("RL");if(!r.ok)throw new Error("NET");return r.text();})
+ .then(t=>{localStorage.setItem('celestrakDB',t);localStorage.setItem('celestrakTime',now);processTLEText(t,btn);})
  .catch(e=>{
-  btn.innerText=e.message==="RATE LIMITED"?'RATE LIMITED! LOADING OLD CACHE...':'DOWNLOAD FAILED. LOADING CACHE...';
-  if(cachedDB)setTimeout(()=>processTLEText(cachedDB,btn),1500);
-  else{btn.style.borderColor="#ef4444";btn.style.color="#ef4444";btn.innerText='API BLOCKED. NO CACHE AVAILABLE.';}
+  btn.innerText=e.message==="RL"?'RATE LIMITED — USING CACHE':'FAILED — USING CACHE';
+  if(c)setTimeout(()=>processTLEText(c,btn),1200);
+  else{btn.style.color="#ff4757";btn.innerText='BLOCKED — NO CACHE';}
  });
 }
 function filterSats(){
  const q=document.getElementById('sat-filter').value.toLowerCase();
  tleData=q?allTleData.filter(s=>s.name.toLowerCase().includes(q)):allTleData;
- document.getElementById('sat-select').innerHTML=
-  tleData.slice(0,200).map((s,i)=>`<option value="${i}">${s.name}</option>`).join('');
+ document.getElementById('sat-select').innerHTML=tleData.slice(0,200).map((s,i)=>`<option value="${i}">${s.name}</option>`).join('');
 }
 function pushTLE(){
- const idx=document.getElementById('sat-select').value;
- if(!tleData[idx])return;
+ const i=document.getElementById('sat-select').value;
+ if(!tleData[i])return;
  const btn=document.getElementById('btn-push');
  btn.innerText='TRANSMITTING...';
  fetch('/api/tle',{method:'POST',headers:{'Content-Type':'application/json'},
-  body:JSON.stringify({name:tleData[idx].name,line1:tleData[idx].l1,line2:tleData[idx].l2})
+  body:JSON.stringify({name:tleData[i].name,line1:tleData[i].l1,line2:tleData[i].l2})
  }).then(()=>{
-  btn.innerText='UPLOAD SUCCESSFUL';
-  document.getElementById('mode-select').value='1';
-  updateMode();
-  setTimeout(()=>{btn.innerText='2. UPLOAD TLE TO HARDWARE';fetchPath();},3000);
+  btn.innerText='UPLOAD OK';
+  document.getElementById('mode-select').value='1';updateMode();
+  setTimeout(()=>{btn.innerText='2 ▸ UPLOAD TLE TO HARDWARE';fetchPath();},3000);
  });
 }
 function updateMode(){
@@ -245,72 +289,64 @@ function updateGrid(){
  const g=document.getElementById('grid-input').value;
  if(g)fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({grid:g})});
 }
-function nudge(az,el){
- targetAz=(targetAz+az+360)%360;
- targetEl=Math.max(0,Math.min(90,targetEl+el));
+function nudge(a,e){
+ targetAz=(targetAz+a+360)%360;
+ targetEl=Math.max(0,Math.min(90,targetEl+e));
  fetch('/api/manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({az:targetAz,el:targetEl})});
 }
 function animateRadar(){
  requestAnimationFrame(animateRadar);
- const cv=document.getElementById('radar');
- const ctx=cv.getContext('2d');
+ const cv=document.getElementById('radar'),ctx=cv.getContext('2d');
  const cx=cv.width/2,cy=cv.height/2,r=cx-22;
  ctx.clearRect(0,0,cv.width,cv.height);
  const toXY=(az,el)=>{
-  const rr=r*(1-el/90);
-  const rad=(az-90)*Math.PI/180;
+  const rr=r*(1-el/90),rad=(az-90)*Math.PI/180;
   return{x:cx+rr*Math.cos(rad),y:cy+rr*Math.sin(rad)};
  };
  if(satPath.length>1){
-  ctx.strokeStyle='rgba(163,230,53,0.8)';ctx.lineWidth=2;ctx.setLineDash([4,4]);
+  ctx.strokeStyle='rgba(255,179,71,0.8)';ctx.lineWidth=2;ctx.setLineDash([5,4]);
   ctx.beginPath();
-  satPath.forEach((pt,i)=>{
-   const p=toXY(pt.az,pt.el);
-   if(i===0)ctx.moveTo(p.x,p.y);else ctx.lineTo(p.x,p.y);
-  });
+  satPath.forEach((p,i)=>{const q=toXY(p.az,p.el);i?ctx.lineTo(q.x,q.y):ctx.moveTo(q.x,q.y);});
   ctx.stroke();ctx.setLineDash([]);
-  const aos=toXY(satPath[0].az,satPath[0].el);
-  const los=toXY(satPath[satPath.length-1].az,satPath[satPath.length-1].el);
-  ctx.fillStyle='#a3e635';ctx.font='10px "Share Tech Mono"';ctx.textAlign='center';
-  ctx.fillText('AOS',aos.x,aos.y-8);
-  ctx.fillStyle='#f87171';ctx.fillText('LOS',los.x,los.y-8);
+  const a=toXY(satPath[0].az,satPath[0].el),l=toXY(satPath[satPath.length-1].az,satPath[satPath.length-1].el);
+  ctx.font='10px "Share Tech Mono"';ctx.textAlign='center';
+  ctx.fillStyle='#00ff9d';ctx.fillText('AOS',a.x,a.y-8);
+  ctx.fillStyle='#ff4757';ctx.fillText('LOS',l.x,l.y-8);
  }
- ctx.strokeStyle='rgba(34,211,238,0.18)';ctx.lineWidth=1;
+ ctx.strokeStyle='rgba(0,255,157,0.18)';ctx.lineWidth=1;
  [0.33,0.66,1].forEach(f=>{ctx.beginPath();ctx.arc(cx,cy,r*f,0,2*Math.PI);ctx.stroke();});
  ctx.beginPath();ctx.moveTo(cx,cy-r);ctx.lineTo(cx,cy+r);ctx.stroke();
  ctx.beginPath();ctx.moveTo(cx-r,cy);ctx.lineTo(cx+r,cy);ctx.stroke();
  ctx.textAlign='center';ctx.textBaseline='middle';
  for(let i=0;i<360;i+=30){
   const rad=(i-90)*Math.PI/180;
-  ctx.strokeStyle=i%90===0?'#38bdf8':'#334155';ctx.lineWidth=i%90===0?2:1;
+  ctx.strokeStyle=i%90===0?'#00ff9d':'#1c272d';ctx.lineWidth=i%90===0?2:1;
   ctx.beginPath();ctx.moveTo(cx+r*Math.cos(rad),cy+r*Math.sin(rad));
   ctx.lineTo(cx+(r+5)*Math.cos(rad),cy+(r+5)*Math.sin(rad));ctx.stroke();
   ctx.font=i%90===0?'bold 12px "Share Tech Mono"':'9px "Share Tech Mono"';
-  ctx.fillStyle=i%90===0?'#38bdf8':'#64748b';
-  if(i===0)ctx.fillText('N',cx,cy-r-14);
-  else if(i===90)ctx.fillText('E',cx+r+14,cy);
-  else if(i===180)ctx.fillText('S',cx,cy+r+14);
-  else if(i===270)ctx.fillText('W',cx-r-14,cy);
-  else ctx.fillText(i,cx+(r+15)*Math.cos(rad),cy+(r+15)*Math.sin(rad));
+  ctx.fillStyle=i%90===0?'#00ff9d':'#3a4a52';
+  if(i===0)ctx.fillText('N',cx,cy-r-13);
+  else if(i===90)ctx.fillText('E',cx+r+13,cy);
+  else if(i===180)ctx.fillText('S',cx,cy+r+13);
+  else if(i===270)ctx.fillText('W',cx-r-13,cy);
+  else ctx.fillText(i,cx+(r+14)*Math.cos(rad),cy+(r+14)*Math.sin(rad));
  }
  sweepAngle+=0.025;
- const g=ctx.createConicGradient?null:null;
- ctx.fillStyle='rgba(34,211,238,0.12)';
- ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,r,sweepAngle,sweepAngle+0.55);ctx.lineTo(cx,cy);ctx.fill();
- ctx.strokeStyle='rgba(34,211,238,0.7)';ctx.lineWidth=1.5;
- ctx.beginPath();ctx.moveTo(cx,cy);
- ctx.lineTo(cx+r*Math.cos(sweepAngle+0.55),cy+r*Math.sin(sweepAngle+0.55));ctx.stroke();
+ ctx.fillStyle='rgba(0,255,157,0.08)';
+ ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,r,sweepAngle,sweepAngle+0.5);ctx.lineTo(cx,cy);ctx.fill();
+ ctx.strokeStyle='rgba(0,255,157,0.6)';ctx.lineWidth=1.5;
+ ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+r*Math.cos(sweepAngle+0.5),cy+r*Math.sin(sweepAngle+0.5));ctx.stroke();
  const ap=toXY(currentAz,currentEl);
- ctx.strokeStyle='rgba(148,163,184,0.6)';ctx.lineWidth=2;
+ ctx.strokeStyle='rgba(200,214,221,0.5)';ctx.lineWidth=2;
  ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(ap.x,ap.y);ctx.stroke();
- ctx.fillStyle='#38bdf8';ctx.beginPath();ctx.arc(ap.x,ap.y,5,0,2*Math.PI);ctx.fill();
+ ctx.fillStyle='#c8d6dd';ctx.beginPath();ctx.arc(ap.x,ap.y,5,0,2*Math.PI);ctx.fill();
  if(targetEl>0){
   const sp=toXY(targetAz,targetEl);
-  ctx.fillStyle=isGeo?'#fbbf24':'#f472b6';
-  ctx.shadowBlur=18;ctx.shadowColor=isGeo?'#fbbf24':'#f472b6';
+  ctx.fillStyle=isGeo?'#ffb347':'#00ff9d';
+  ctx.shadowBlur=16;ctx.shadowColor=ctx.fillStyle;
   ctx.beginPath();ctx.arc(sp.x,sp.y,6,0,2*Math.PI);ctx.fill();
   ctx.shadowBlur=0;
-  if(isGeo){ctx.fillStyle='#fbbf24';ctx.font='9px "Share Tech Mono"';ctx.fillText('GEO',sp.x,sp.y-12);}
+  if(isGeo){ctx.fillStyle='#ffb347';ctx.font='9px "Share Tech Mono"';ctx.fillText('GEO',sp.x,sp.y-12);}
  }
 }
 setInterval(fetchTelemetry,500);
@@ -324,33 +360,33 @@ animateRadar();
 const char wifi_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>WIFI CONFIGURATION</title><style>
-@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@400;600&display=swap');
+<title>NETWORK SETUP</title><style>
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@500;600&display=swap');
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Inter',sans-serif;background:#05060f;background-image:radial-gradient(ellipse at 50% 0%,rgba(124,58,237,.2),transparent 60%);
-color:#e2e8f0;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;padding:20px;text-align:center}
-.panel{background:rgba(13,18,38,.85);border:1px solid rgba(148,163,184,.15);border-radius:16px;padding:32px;width:100%;max-width:400px;
-box-shadow:0 10px 50px rgba(0,0,0,.6)}
-h2{font-family:'Share Tech Mono',monospace;background:linear-gradient(90deg,#22d3ee,#a78bfa);-webkit-background-clip:text;background-clip:text;color:transparent;margin-bottom:20px;letter-spacing:2px}
-p{color:#94a3b8;font-size:.9rem;margin-bottom:25px;line-height:1.5}
-input{width:100%;padding:15px;margin-bottom:15px;background:rgba(2,6,23,.9);border:1px solid rgba(148,163,184,.2);color:#e2e8f0;border-radius:10px;font-size:1rem;outline:none}
-input:focus{border-color:#22d3ee;box-shadow:0 0 14px rgba(34,211,238,.25)}
-button{width:100%;padding:15px;background:linear-gradient(135deg,rgba(34,211,238,.15),rgba(167,139,250,.15));color:#22d3ee;border:1px solid rgba(34,211,238,.5);border-radius:10px;cursor:pointer;font-weight:600;letter-spacing:2px;font-size:1rem;transition:.2s}
-button:hover{background:linear-gradient(135deg,#22d3ee,#a78bfa);color:#020617}
+body{font-family:'Rajdhani',sans-serif;background:#060a0d;color:#c8d6dd;display:flex;align-items:center;justify-content:center;height:100vh;padding:20px;
+background-image:linear-gradient(rgba(0,255,157,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,255,157,.03) 1px,transparent 1px);background-size:32px 32px}
+.panel{background:#0b1216;border:1px solid #3a4a52;padding:32px;width:100%;max-width:400px;text-align:center;position:relative}
+.panel::before{content:'';position:absolute;top:-2px;left:-2px;width:12px;height:12px;border:2px solid #00ff9d;border-right:0;border-bottom:0}
+.panel::after{content:'';position:absolute;bottom:-2px;right:-2px;width:12px;height:12px;border:2px solid #00ff9d;border-left:0;border-top:0}
+h2{font-family:'Share Tech Mono',monospace;color:#00ff9d;margin-bottom:18px;letter-spacing:3px;text-shadow:0 0 12px rgba(0,255,157,.4)}
+p{color:#5a6e78;font-size:.9rem;margin-bottom:22px;line-height:1.5}
+input{width:100%;padding:14px;margin-bottom:14px;background:#060c10;border:1px solid #3a4a52;color:#c8d6dd;font-size:1rem;outline:none}
+input:focus{border-color:#00ff9d}
+button{width:100%;padding:14px;background:rgba(0,255,157,.07);color:#00ff9d;border:1px solid #00ff9d;cursor:pointer;font-weight:600;letter-spacing:2px;font-size:1rem;font-family:'Rajdhani',sans-serif}
+button:hover{background:#00ff9d;color:#03110a}
 </style></head><body>
 <div class="panel" id="mainPanel">
 <h2>NETWORK SETUP</h2>
-<p>The Aerospace Tracker lost its network link. Enter your router credentials below.</p>
-<input type="text" id="ssid" placeholder="WiFi Network Name (SSID)">
-<input type="password" id="pass" placeholder="WiFi Password">
+<p>Downlink lost. Enter router credentials to restore the ground station connection.</p>
+<input type="text" id="ssid" placeholder="WIFI SSID">
+<input type="password" id="pass" placeholder="PASSWORD">
 <button onclick="saveWifi()">SAVE & REBOOT</button>
 </div>
 <script>
 function saveWifi(){
- const s=document.getElementById('ssid').value;
- const p=document.getElementById('pass').value;
- if(!s||!p){alert("Please enter both SSID and Password");return;}
- document.getElementById('mainPanel').innerHTML="<h2>REBOOTING...</h2><p>Credentials saved. Return to your home WiFi network.</p>";
+ const s=document.getElementById('ssid').value,p=document.getElementById('pass').value;
+ if(!s||!p){alert("Enter both SSID and Password");return;}
+ document.getElementById('mainPanel').innerHTML="<h2>REBOOTING</h2><p>Credentials saved. Return to your home network.</p>";
  fetch('/api/wifi',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssid:s,pass:p})});
 }
 </script></body></html>
@@ -368,26 +404,21 @@ function saveWifi(){
 
 #define C_BLACK  0x0000
 #define C_WHITE  0xFFFF
-#define C_CYAN   0x07FF
+#define C_NEON   0x07F3   // bright spring green
 #define C_GREEN  0x07E0
 #define C_LIME   0xAFE5
-#define C_YELLOW 0xFFE0
 #define C_AMBER  0xFD60
 #define C_ORANGE 0xFD20
 #define C_RED    0xF800
-#define C_PINK   0xFB56
-#define C_MAG    0xF81F
-#define C_VIOLET 0xA15F
-#define C_BLUE   0x34BF
-#define C_DGRAY  0x2945
+#define C_CYAN   0x07FF
 #define C_MGRAY  0x7BEF
+#define C_DGRAY  0x2945
 #define C_FAINT  0x1084
-#define C_HDRBG  0x0861   // dark slate
-#define C_TEALBG 0x0149   // dark teal panel title
-#define C_PURPBG 0x2808   // dark purple panel title
-#define C_AMBBG  0x2940   // dark amber panel title
+#define C_HDRBG  0x01E2   // dark green header
+#define C_PNLG   0x0162   // panel title dark green
+#define C_PNLA   0x2940   // panel title dark amber
+#define C_RING   0x0269   // radar ring dark green
 #define C_DRED   0x6000
-#define C_DBLUE  0x0010
 
 // ================= OBJECTS =================
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
@@ -401,6 +432,11 @@ WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 60000);
 Preferences prefs;
 Sgp4 sat;
+
+// BUG FIX: static prediction object — previously a local Sgp4 was created
+// on the Core0 task stack every 60s. The object is several KB and was
+// overflowing/corrupting the stack, silently wiping pass data & path.
+static Sgp4 predSat;
 
 // ================= STATE =================
 char tleLine1[70] = "";
@@ -424,6 +460,7 @@ volatile float dopplerFreq = 0, satDistance = 0;
 unsigned long lastDopplerTime = 0, lastSGP4Update = 0;
 volatile time_t nextAosTime = 0, nextLosTime = 0;
 volatile float nextMaxEl = 0;
+volatile bool predBusy = false;   // guards path reads during recalc
 
 struct PassLogEntry { char sat[25]; char time[20]; float maxEl; };
 PassLogEntry passLog[10];
@@ -439,12 +476,10 @@ unsigned long lastPathCalc = 0;
 volatile bool newPathReady = false;
 
 // ---- TFT dynamic cache ----
-float prev_cAz, prev_cEl, prev_tAz, prev_tEl;
-float prev_dist, prev_dop;
+float prev_cAz, prev_cEl, prev_tAz, prev_tEl, prev_dist, prev_dop;
 int   prev_rssi, prev_heap;
 int   prev_moving, prev_ntp, prev_l4s, prev_mode, prev_geo;
-char  prev_sat[25];
-char  prev_clock[10];
+char  prev_sat[25], prev_clock[10];
 long  prev_countdown;
 float prev_maxElShown;
 int prev_antX, prev_antY, prev_satX, prev_satY;
@@ -453,7 +488,7 @@ int terminalY = 30;
 TaskHandle_t Core0Task;
 
 // Radar geometry
-const int RCX = 120, RCY = 232, RR = 56;
+const int RCX = 120, RCY = 228, RR = 55;
 
 void parseEasyComm(String cmd);
 void runSGP4();
@@ -511,32 +546,26 @@ String buildTelemetryJson() {
   doc["doppler"] = (float)dopplerFreq;
   doc["dist"] = (float)satDistance;
   doc["geo"] = isGeoSat;
+  // MPU6050: uncomment to expose IMU attitude over the API
+  // doc["imuPitch"] = (float)mpuPitch;
+  // doc["imuRoll"]  = (float)mpuRoll;
+  // doc["imuOK"]    = mpuOK;
   String out;
   serializeJson(doc, out);
   return out;
-}
-
-// Rainbow gradient strip (cyan -> violet -> magenta)
-void drawGradientLine(int x, int y, int w, int h) {
-  for (int i = 0; i < w; i++) {
-    float f = (float)i / w;
-    uint8_t r = (uint8_t)(f * 31);
-    uint8_t g = (uint8_t)(63 - f * 63);
-    tft.fillRect(x + i, y, 1, h, (r << 11) | (g << 5) | 31);
-  }
 }
 
 // ================= BOOT SCREENS =================
 void drawBootScreen() {
   tft.fillScreen(C_BLACK);
   tft.fillRect(0, 0, 240, 28, C_HDRBG);
-  drawGradientLine(0, 28, 240, 2);
-  tft.fillRect(0, 0, 4, 28, C_CYAN);
-  tft.fillRect(236, 0, 4, 28, C_MAG);
-  tft.setTextColor(C_CYAN); tft.setTextSize(1);
+  tft.fillRect(0, 28, 240, 2, C_NEON);
+  tft.fillRect(0, 0, 4, 28, C_NEON);
+  tft.fillRect(236, 0, 4, 28, C_AMBER);
+  tft.setTextColor(C_NEON); tft.setTextSize(1);
   tft.setCursor(8, 5);  tft.print("ESP32 SATELLITE TRACKER");
-  tft.setTextColor(C_VIOLET);
-  tft.setCursor(8, 16); tft.print("v8.5  //  SGP4 ENGINE");
+  tft.setTextColor(C_AMBER);
+  tft.setCursor(8, 16); tft.print("v9.0  //  ORBITAL OPS");
   tft.setTextColor(C_MGRAY); tft.setCursor(8, 38); tft.print("DEVELOPER:");
   tft.setTextColor(C_WHITE); tft.setCursor(8, 50); tft.print("Muhammad Uzzam Butt");
   tft.drawFastHLine(4, 64, 232, C_DGRAY);
@@ -561,8 +590,8 @@ void drawBootScreen() {
   if (tempBuffer) free(tempBuffer);
 
   tft.fillRect(0, 300, 240, 20, C_HDRBG);
-  drawGradientLine(0, 298, 240, 2);
-  tft.setTextColor(C_CYAN); tft.setCursor(8, 307);
+  tft.fillRect(0, 298, 240, 2, C_NEON);
+  tft.setTextColor(C_NEON); tft.setCursor(8, 307);
   tft.print("INITIALIZING SYSTEMS...");
 }
 
@@ -571,14 +600,14 @@ void printBootTerminal(String msg) {
   if (terminalY > 300) {
     tft.fillScreen(C_BLACK);
     tft.fillRect(0, 0, 240, 18, C_HDRBG);
-    drawGradientLine(0, 18, 240, 2);
-    tft.setTextColor(C_CYAN); tft.setTextSize(1);
-    tft.setCursor(8, 5); tft.print("SYSTEM BOOT SEQUENCE...");
+    tft.fillRect(0, 18, 240, 2, C_NEON);
+    tft.setTextColor(C_NEON); tft.setTextSize(1);
+    tft.setCursor(8, 5); tft.print("BOOT SEQUENCE");
     terminalY = 28;
   }
   tft.setTextSize(1);
   tft.setCursor(5, terminalY);
-  tft.setTextColor(C_LIME); tft.print("> ");
+  tft.setTextColor(C_NEON); tft.print("> ");
   tft.setTextColor(C_WHITE); tft.print(msg);
   terminalY += 12;
   delay(80);
@@ -598,13 +627,13 @@ void tftDrawAPMode() {
   tft.setCursor(10, 32); tft.print("WIFI FAIL");
 
   tft.drawRoundRect(2, 58, 236, 128, 4, C_AMBER);
-  tft.fillRect(3, 59, 234, 12, C_AMBBG);
+  tft.fillRect(3, 59, 234, 12, C_PNLA);
   tft.setTextColor(C_AMBER); tft.setTextSize(1);
   tft.setCursor(6, 61); tft.print("[ SETUP INSTRUCTIONS ]");
   tft.drawFastHLine(3, 71, 234, C_DGRAY);
   tft.setTextColor(C_AMBER); tft.setCursor(6, 76);  tft.print("1.");
   tft.setTextColor(C_MGRAY); tft.setCursor(20, 76); tft.print("Join this WiFi network:");
-  tft.setTextColor(C_CYAN);  tft.setCursor(20, 88); tft.print("AEROSPACE-TRACKER");
+  tft.setTextColor(C_NEON);  tft.setCursor(20, 88); tft.print("AEROSPACE-TRACKER");
   tft.setTextColor(C_AMBER); tft.setCursor(6, 104);  tft.print("2.");
   tft.setTextColor(C_MGRAY); tft.setCursor(20, 104); tft.print("WiFi Password:");
   tft.setTextColor(C_WHITE); tft.setCursor(20, 116); tft.print("groundstation");
@@ -615,7 +644,7 @@ void tftDrawAPMode() {
   tft.setTextColor(C_MGRAY); tft.setCursor(20, 160); tft.print("Enter new credentials.");
 
   tft.drawRoundRect(2, 192, 236, 24, 4, C_DGRAY);
-  tft.setTextColor(C_YELLOW);
+  tft.setTextColor(C_AMBER);
   tft.setCursor(6, 200); tft.print("WAITING FOR CREDENTIALS...");
   tft.fillRect(0, 300, 240, 20, C_DRED);
   tft.setTextColor(C_WHITE);
@@ -623,84 +652,87 @@ void tftDrawAPMode() {
 }
 
 // ================= STATIC HUD FRAME =================
-// Layout: Header 0-17 | TARGET 20-74 | RF LINK 77-117 | PASS 120-160 | RADAR 163-301 | BAR 304-320
+// Layout: HDR 0-17 | TARGET 20-74 | CHIPS 78-100 | PASS 104-146
+//         RF row 150-160 | RADAR 164-293 | BAR 302-320
 void tftDrawStaticFrame() {
   tft.fillScreen(C_BLACK);
   resetTftCache();
 
-  // ── Header with gradient underline & clock zone ──
+  // Header
   tft.fillRect(0, 0, 240, 16, C_HDRBG);
-  drawGradientLine(0, 16, 240, 2);
-  tft.fillRect(0, 0, 3, 16, C_CYAN);
-  tft.setTextColor(C_WHITE); tft.setTextSize(1);
-  tft.setCursor(7, 4); tft.print("AEROSPACE CMD");
-  tft.setTextColor(C_VIOLET);
+  tft.fillRect(0, 16, 240, 2, C_NEON);
+  tft.fillRect(0, 0, 3, 16, C_AMBER);
+  tft.setTextColor(C_NEON); tft.setTextSize(1);
+  tft.setCursor(7, 4); tft.print("ORBITAL OPS");
+  tft.setTextColor(C_MGRAY);
   tft.setCursor(96, 4); tft.print("UTC");
-  // clock drawn dynamically at (122,4); NTP dot at (228,7)
+  // clock at (122,4); NTP dot at (228,8)
 
-  // ── TARGET (cyan) ──
-  tft.drawRoundRect(2, 20, 236, 54, 4, C_CYAN);
-  tft.fillRect(3, 21, 234, 11, C_TEALBG);
-  tft.setTextColor(C_CYAN);
-  tft.setCursor(6, 23); tft.print("TARGET");
+  // TARGET panel
+  tft.drawRect(2, 20, 236, 54, C_NEON);
+  tft.fillRect(3, 21, 234, 11, C_PNLG);
+  tft.setTextColor(C_NEON);
+  tft.setCursor(6, 23); tft.print("TGT");
   tft.drawFastHLine(3, 32, 234, C_FAINT);
   tft.drawFastVLine(118, 33, 40, C_FAINT);
   tft.setTextColor(C_MGRAY);
   tft.setCursor(6, 40);   tft.print("AZ");
   tft.setCursor(124, 40); tft.print("EL");
 
-  // ── RF LINK (magenta) ──
-  tft.drawRoundRect(2, 77, 236, 40, 4, C_MAG);
-  tft.fillRect(3, 78, 234, 11, C_PURPBG);
-  tft.setTextColor(C_PINK);
-  tft.setCursor(6, 80); tft.print("RF LINK");
-  tft.setTextColor(C_VIOLET);
-  tft.setCursor(170, 80); tft.print(maidenhead);
-  tft.drawFastHLine(3, 89, 234, C_FAINT);
-  tft.drawFastVLine(118, 90, 26, C_FAINT);
-  tft.setTextColor(C_MGRAY);
-  tft.setCursor(6, 93);    tft.print("DST:");
-  tft.setCursor(124, 93);  tft.print("DOP:");
-  tft.setCursor(6, 105);   tft.print("SIG:");
-  tft.setCursor(124, 105); tft.print("L4S:");
+  // STATUS CHIPS row (5 chips, 46px each)
+  const char* chipLbl[5] = {"ENG", "MOT", "L4S", "NTP", "MEM"};
+  for (int i = 0; i < 5; i++) {
+    int x = 2 + i * 48;
+    tft.drawRect(x, 78, 44, 22, C_DGRAY);
+    tft.fillRect(x+1, 79, 42, 8, C_FAINT);
+    tft.setTextColor(C_MGRAY);
+    tft.setCursor(x + 13, 79); tft.print(chipLbl[i]);
+  }
 
-  // ── PASS PREDICTION (amber) ──
-  tft.drawRoundRect(2, 120, 236, 40, 4, C_AMBER);
-  tft.fillRect(3, 121, 234, 11, C_AMBBG);
+  // PASS panel
+  tft.drawRect(2, 104, 236, 42, C_AMBER);
+  tft.fillRect(3, 105, 234, 11, C_PNLA);
   tft.setTextColor(C_AMBER);
-  tft.setCursor(6, 123); tft.print("PASS PREDICTION");
-  tft.drawFastHLine(3, 132, 234, C_FAINT);
-  tft.drawFastVLine(118, 133, 26, C_FAINT);
+  tft.setCursor(6, 107); tft.print("PASS PREDICTION");
+  tft.drawFastHLine(3, 116, 234, C_FAINT);
+  tft.drawFastVLine(118, 117, 28, C_FAINT);
   tft.setTextColor(C_MGRAY);
-  tft.setCursor(6, 136);   tft.print("AOS:");
-  tft.setCursor(124, 136); tft.print("MAX:");
-  tft.setCursor(6, 148);   tft.print("LOS:");
-  tft.setCursor(124, 148); tft.print("T- :");
+  tft.setCursor(6, 120);   tft.print("AOS:");
+  tft.setCursor(124, 120); tft.print("MAX:");
+  tft.setCursor(6, 133);   tft.print("LOS:");
+  tft.setCursor(124, 133); tft.print("T- :");
 
-  // ── Bottom status bar ──
-  tft.fillRect(0, 304, 240, 16, C_HDRBG);
-  drawGradientLine(0, 302, 240, 2);
-  tft.setTextColor(C_CYAN); tft.setCursor(6, 308);
+  // RF info row labels
+  tft.setTextColor(C_MGRAY);
+  tft.setCursor(6, 151);   tft.print("DST:");
+  tft.setCursor(124, 151); tft.print("DOP:");
+
+  // Bottom bar
+  tft.fillRect(0, 302, 240, 18, C_HDRBG);
+  tft.fillRect(0, 300, 240, 2, C_NEON);
+  tft.setTextColor(C_NEON); tft.setCursor(6, 307);
   tft.print(isAPMode ? "192.168.4.1" : WiFi.localIP().toString());
-  // dynamic: ENG@(110), SLEW@(154), MEM@(198)
+  tft.setTextColor(C_MGRAY);
+  tft.setCursor(120, 307); tft.print(maidenhead);
+  // RSSI bars at (200,305)
 
-  newPathReady = true; // force full radar draw
+  newPathReady = true;
 }
 
 void drawRadarBackground() {
-  tft.drawCircle(RCX, RCY, RR,     0x0339);  // deep teal rings
-  tft.drawCircle(RCX, RCY, RR*2/3, 0x0339);
-  tft.drawCircle(RCX, RCY, RR/3,   0x0339);
-  tft.drawFastVLine(RCX, RCY - RR, RR*2 + 1, 0x0339);
-  tft.drawFastHLine(RCX - RR, RCY, RR*2 + 1, 0x0339);
+  tft.drawCircle(RCX, RCY, RR,     C_RING);
+  tft.drawCircle(RCX, RCY, RR*2/3, C_RING);
+  tft.drawCircle(RCX, RCY, RR/3,   C_RING);
+  tft.drawFastVLine(RCX, RCY - RR, RR*2 + 1, C_RING);
+  tft.drawFastHLine(RCX - RR, RCY, RR*2 + 1, C_RING);
   for (int i = 0; i < 360; i += 45) {
     float rad = i * PI / 180.0f;
     tft.drawLine(RCX + (int)((RR-4)*cosf(rad)), RCY + (int)((RR-4)*sinf(rad)),
                  RCX + (int)(RR*cosf(rad)),     RCY + (int)(RR*sinf(rad)),
-                 (i % 90 == 0) ? C_BLUE : C_DGRAY);
+                 (i % 90 == 0) ? C_NEON : C_DGRAY);
   }
   tft.setTextSize(1);
-  tft.setTextColor(C_CYAN);
+  tft.setTextColor(C_NEON);
   tft.setCursor(RCX-2,    RCY-RR-10); tft.print("N");
   tft.setCursor(RCX-2,    RCY+RR+4);  tft.print("S");
   tft.setCursor(RCX+RR+5, RCY-3);     tft.print("E");
@@ -710,12 +742,11 @@ void drawRadarBackground() {
   tft.setCursor(RCX+3, RCY-RR*2/3-4); tft.print("30");
 }
 
-// Signal strength bars (4 bars) at given origin
 void drawSigBars(int x, int y, int rssi) {
   int lvl = (rssi > -55) ? 4 : (rssi > -65) ? 3 : (rssi > -75) ? 2 : (rssi > -85) ? 1 : 0;
   for (int i = 0; i < 4; i++) {
     int h = 3 + i * 2;
-    uint16_t c = (i < lvl) ? ((lvl >= 3) ? C_LIME : (lvl == 2) ? C_AMBER : C_RED) : C_DGRAY;
+    uint16_t c = (i < lvl) ? ((lvl >= 3) ? C_NEON : (lvl == 2) ? C_AMBER : C_RED) : C_DGRAY;
     tft.fillRect(x + i * 5, y + (9 - h), 3, h, c);
   }
 }
@@ -725,7 +756,7 @@ void tftUpdateDynamic() {
   if (spiLock || isAPMode) return;
   char buf[32];
 
-  // ── UTC clock in header ──
+  // UTC clock + NTP dot
   time_t nowT = (time_t)timeClient.getEpochTime();
   struct tm tmN; gmtime_r(&nowT, &tmN);
   char ck[10];
@@ -736,17 +767,20 @@ void tftUpdateDynamic() {
     tft.setCursor(122, 4); tft.print(ck);
     strcpy(prev_clock, ck);
   }
-  // NTP dot in header
   if ((int)ntpSynced != prev_ntp) {
-    tft.fillCircle(228, 8, 3, ntpSynced ? C_LIME : C_RED);
+    tft.fillCircle(228, 8, 3, ntpSynced ? C_NEON : C_RED);
     prev_ntp = ntpSynced;
+    // also update NTP chip below
+    tft.fillRect(147, 88, 42, 11, C_BLACK);
+    tft.setTextColor(ntpSynced ? C_NEON : C_RED); tft.setTextSize(1);
+    tft.setCursor(150, 90); tft.print(ntpSynced ? "SYNC" : "ERR");
   }
 
-  // ── Sat name in TARGET title bar ──
+  // Sat name in TARGET title
   if (strcmp(satName, prev_sat) != 0) {
-    tft.fillRect(52, 21, 184, 11, C_TEALBG);
-    tft.setTextColor(C_YELLOW); tft.setTextSize(1);
-    tft.setCursor(54, 23);
+    tft.fillRect(30, 21, 207, 11, C_PNLG);
+    tft.setTextColor(C_AMBER); tft.setTextSize(1);
+    tft.setCursor(32, 23);
     snprintf(buf, sizeof(buf), "%.22s%s", satName, isGeoSat ? " GEO" : "");
     tft.print(buf);
     strncpy(prev_sat, satName, 24);
@@ -754,10 +788,10 @@ void tftUpdateDynamic() {
 
   float cAz = currentAz, tAz = targetAz, cEl = currentEl, tEl = targetEl;
 
-  // ── AZ column ──
+  // AZ column
   if (fabsf(cAz - prev_cAz) > 0.05f || fabsf(tAz - prev_tAz) > 0.05f) {
     tft.fillRect(22, 36, 94, 16, C_BLACK);
-    tft.setTextColor(C_CYAN); tft.setTextSize(2);
+    tft.setTextColor(C_NEON); tft.setTextSize(2);
     tft.setCursor(22, 36);
     snprintf(buf, sizeof(buf), "%05.1f", (double)cAz);
     tft.print(buf);
@@ -766,7 +800,7 @@ void tftUpdateDynamic() {
     if (dAz < -180) dAz += 360;
     tft.fillRect(6, 58, 110, 9, C_BLACK);
     tft.setTextSize(1);
-    tft.setTextColor(C_LIME);
+    tft.setTextColor(C_WHITE);
     tft.setCursor(6, 58);
     snprintf(buf, sizeof(buf), ">%05.1f", (double)tAz);
     tft.print(buf);
@@ -777,17 +811,17 @@ void tftUpdateDynamic() {
     prev_cAz = cAz; prev_tAz = tAz;
   }
 
-  // ── EL column ──
+  // EL column
   if (fabsf(cEl - prev_cEl) > 0.05f || fabsf(tEl - prev_tEl) > 0.05f) {
     tft.fillRect(140, 36, 96, 16, C_BLACK);
-    tft.setTextColor(C_PINK); tft.setTextSize(2);
+    tft.setTextColor(C_AMBER); tft.setTextSize(2);
     tft.setCursor(140, 36);
     snprintf(buf, sizeof(buf), "%04.1f", (double)cEl);
     tft.print(buf);
     float dEl = tEl - cEl;
     tft.fillRect(124, 58, 110, 9, C_BLACK);
     tft.setTextSize(1);
-    tft.setTextColor(C_LIME);
+    tft.setTextColor(C_WHITE);
     tft.setCursor(124, 58);
     snprintf(buf, sizeof(buf), ">%04.1f", (double)tEl);
     tft.print(buf);
@@ -800,97 +834,88 @@ void tftUpdateDynamic() {
 
   tft.setTextSize(1);
 
-  // ── RF: Distance ──
-  if (fabsf(satDistance - prev_dist) > 0.5f) {
-    tft.fillRect(32, 93, 84, 9, C_BLACK);
-    tft.setTextColor(C_WHITE);
-    tft.setCursor(32, 93);
-    if (satDistance > 0) snprintf(buf, sizeof(buf), "%.0f km", (double)satDistance);
-    else strcpy(buf, "---");
-    tft.print(buf);
-    prev_dist = satDistance;
-  }
-  // ── RF: Doppler ──
-  if (fabsf(dopplerFreq - prev_dop) > 1.0f) {
-    tft.fillRect(150, 93, 84, 9, C_BLACK);
-    tft.setTextColor(C_VIOLET);
-    tft.setCursor(150, 93);
-    snprintf(buf, sizeof(buf), "%+05.0fHz", (double)dopplerFreq);
-    tft.print(buf);
-    prev_dop = dopplerFreq;
-  }
-  // ── RF: WiFi signal bars + dBm ──
-  int rssi = isAPMode ? -100 : WiFi.RSSI();
-  if (abs(rssi - prev_rssi) > 2) {
-    tft.fillRect(32, 102, 84, 12, C_BLACK);
-    drawSigBars(32, 103, rssi);
-    tft.setTextColor(C_MGRAY);
-    tft.setCursor(56, 105);
-    snprintf(buf, sizeof(buf), "%ddBm", rssi);
-    tft.print(buf);
-    prev_rssi = rssi;
-  }
-  // ── RF: L4S link ──
-  bool l4sNow = (tcpClient && tcpClient.connected());
-  if ((int)l4sNow != prev_l4s) {
-    tft.fillRect(150, 105, 84, 9, C_BLACK);
-    tft.setTextColor(l4sNow ? C_LIME : C_MGRAY);
-    tft.setCursor(150, 105);
-    tft.print(l4sNow ? "LINKED" : "WAITING");
-    prev_l4s = l4sNow;
-  }
-
-  // ── Bottom bar: ENG / motion / heap ──
+  // Chips: ENG / MOT / L4S / MEM
   int modeVal = onboardMode ? 1 : 0;
   if (modeVal != prev_mode) {
-    tft.fillRect(106, 308, 46, 9, C_HDRBG);
-    tft.setTextColor(onboardMode ? C_CYAN : C_AMBER);
-    tft.setCursor(106, 308);
-    tft.print(onboardMode ? "SGP4" : "L4S");
+    tft.fillRect(3, 88, 42, 11, C_BLACK);
+    tft.setTextColor(onboardMode ? C_NEON : C_AMBER);
+    tft.setCursor(6, 90); tft.print(onboardMode ? "SGP4" : "L4S");
     prev_mode = modeVal;
   }
   if ((int)isMoving != prev_moving) {
-    tft.fillRect(150, 308, 44, 9, C_HDRBG);
-    tft.setTextColor(isMoving ? C_AMBER : C_LIME);
-    tft.setCursor(150, 308);
-    tft.print(isMoving ? "SLEW" : "IDLE");
+    tft.fillRect(51, 88, 42, 11, C_BLACK);
+    tft.setTextColor(isMoving ? C_AMBER : C_NEON);
+    tft.setCursor(54, 90); tft.print(isMoving ? "SLEW" : "IDLE");
     prev_moving = isMoving;
+  }
+  bool l4sNow = (tcpClient && tcpClient.connected());
+  if ((int)l4sNow != prev_l4s) {
+    tft.fillRect(99, 88, 42, 11, C_BLACK);
+    tft.setTextColor(l4sNow ? C_NEON : C_MGRAY);
+    tft.setCursor(102, 90); tft.print(l4sNow ? "LINK" : "----");
+    prev_l4s = l4sNow;
   }
   int heapK = ESP.getFreeHeap() / 1024;
   if (abs(heapK - prev_heap) > 2) {
-    tft.fillRect(194, 308, 44, 9, C_HDRBG);
-    tft.setTextColor(C_MGRAY);
-    tft.setCursor(194, 308);
-    snprintf(buf, sizeof(buf), "%dKB", heapK);
+    tft.fillRect(195, 88, 42, 11, C_BLACK);
+    tft.setTextColor(heapK > 50 ? C_MGRAY : C_RED);
+    tft.setCursor(198, 90);
+    snprintf(buf, sizeof(buf), "%dK", heapK);
     tft.print(buf);
     prev_heap = heapK;
   }
 
-  // ── Pass prediction ──
+  // RF row: DST / DOP
+  if (fabsf(satDistance - prev_dist) > 0.5f) {
+    tft.fillRect(32, 151, 84, 9, C_BLACK);
+    tft.setTextColor(C_WHITE);
+    tft.setCursor(32, 151);
+    if (satDistance > 0) snprintf(buf, sizeof(buf), "%.0fkm", (double)satDistance);
+    else strcpy(buf, "---");
+    tft.print(buf);
+    prev_dist = satDistance;
+  }
+  if (fabsf(dopplerFreq - prev_dop) > 1.0f) {
+    tft.fillRect(150, 151, 86, 9, C_BLACK);
+    tft.setTextColor(C_NEON);
+    tft.setCursor(150, 151);
+    snprintf(buf, sizeof(buf), "%+05.0fHz", (double)dopplerFreq);
+    tft.print(buf);
+    prev_dop = dopplerFreq;
+  }
+
+  // Bottom bar RSSI bars
+  int rssi = isAPMode ? -100 : WiFi.RSSI();
+  if (abs(rssi - prev_rssi) > 2) {
+    tft.fillRect(198, 304, 40, 14, C_HDRBG);
+    drawSigBars(200, 306, rssi);
+    prev_rssi = rssi;
+  }
+
+  // Pass prediction
   unsigned long nowEpoch = timeClient.getEpochTime();
   int geoState = isGeoSat ? 1 : 0;
   long countdown = (nextAosTime > 0) ? (long)(nextAosTime - (time_t)nowEpoch) : -999999;
-  bool redraw = false;
-  if (geoState != prev_geo) redraw = true;
-  else if (geoState && fabsf(nextMaxEl - prev_maxElShown) > 0.05f) redraw = true;
-  else if (!geoState && countdown != prev_countdown) redraw = true;
+  bool redraw = (geoState != prev_geo) ||
+                (geoState && fabsf(nextMaxEl - prev_maxElShown) > 0.05f) ||
+                (!geoState && countdown != prev_countdown);
 
   if (redraw) {
-    tft.fillRect(32, 136, 84, 9, C_BLACK);
-    tft.fillRect(32, 148, 84, 9, C_BLACK);
-    tft.fillRect(150, 136, 84, 9, C_BLACK);
-    tft.fillRect(150, 148, 84, 9, C_BLACK);
+    tft.fillRect(32, 120, 84, 9, C_BLACK);
+    tft.fillRect(32, 133, 84, 9, C_BLACK);
+    tft.fillRect(150, 120, 86, 9, C_BLACK);
+    tft.fillRect(150, 133, 86, 9, C_BLACK);
 
     if (geoState) {
-      tft.setTextColor(C_CYAN);
-      tft.setCursor(32, 136); tft.print("GEO ORBIT");
-      tft.setCursor(32, 148); tft.print("STATIC");
-      tft.setTextColor(C_YELLOW);
-      tft.setCursor(150, 136);
+      tft.setTextColor(C_NEON);
+      tft.setCursor(32, 120); tft.print("GEO ORBIT");
+      tft.setCursor(32, 133); tft.print("STATIC");
+      tft.setTextColor(C_AMBER);
+      tft.setCursor(150, 120);
       snprintf(buf, sizeof(buf), "%.1f deg", (double)nextMaxEl);
       tft.print(buf);
-      tft.setCursor(150, 148);
-      if (nextMaxEl > 0) { tft.setTextColor(C_LIME); tft.print("LOCKED"); }
+      tft.setCursor(150, 133);
+      if (nextMaxEl > 0) { tft.setTextColor(C_NEON); tft.print("LOCKED"); }
       else               { tft.setTextColor(C_RED);  tft.print("NO VIS"); }
     } else if (nextAosTime > 0) {
       time_t aosT = nextAosTime, losT = nextLosTime;
@@ -898,21 +923,21 @@ void tftUpdateDynamic() {
       gmtime_r(&aosT, &tmAos);
       gmtime_r(&losT, &tmLos);
       tft.setTextColor(C_WHITE);
-      tft.setCursor(32, 136);
+      tft.setCursor(32, 120);
       snprintf(buf, sizeof(buf), "%02d:%02d:%02d", tmAos.tm_hour, tmAos.tm_min, tmAos.tm_sec);
       tft.print(buf);
-      tft.setCursor(32, 148);
+      tft.setCursor(32, 133);
       snprintf(buf, sizeof(buf), "%02d:%02d:%02d", tmLos.tm_hour, tmLos.tm_min, tmLos.tm_sec);
       tft.print(buf);
-      tft.setTextColor(C_YELLOW);
-      tft.setCursor(150, 136);
+      tft.setTextColor(C_AMBER);
+      tft.setCursor(150, 120);
       snprintf(buf, sizeof(buf), "%.1f deg", (double)nextMaxEl);
       tft.print(buf);
-      tft.setCursor(150, 148);
+      tft.setCursor(150, 133);
       if (countdown <= 0 && (time_t)nowEpoch < losT) {
-        tft.setTextColor(C_LIME); tft.print("TRACKING");
+        tft.setTextColor(C_NEON); tft.print("TRACKING");
       } else if (countdown > 0) {
-        tft.setTextColor(C_AMBER);
+        tft.setTextColor(C_ORANGE);
         snprintf(buf, sizeof(buf), "-%02ld:%02ld:%02ld",
                  countdown/3600, (countdown%3600)/60, countdown%60);
         tft.print(buf);
@@ -921,8 +946,8 @@ void tftUpdateDynamic() {
       }
     } else {
       tft.setTextColor(C_RED);
-      tft.setCursor(32, 136); tft.print(tleLoaded ? "NO PASS" : "NO TLE");
-      tft.setCursor(32, 148); tft.print("--:--:--");
+      tft.setCursor(32, 120); tft.print(tleLoaded ? "SEARCHING" : "NO TLE");
+      tft.setCursor(32, 133); tft.print("--:--:--");
     }
     prev_geo = geoState;
     prev_countdown = countdown;
@@ -942,7 +967,7 @@ void tftRadarUpdate() {
   };
 
   if (newPathReady) {
-    // FULL bounding-box wipe — also clears stale A/L labels
+    // Full bounding-box wipe (clears stale A/L labels too)
     tft.fillRect(RCX - RR - 14, RCY - RR - 14, (RR + 14) * 2, (RR + 14) * 2, C_BLACK);
     drawRadarBackground();
     prev_antX = prev_satX = -1;
@@ -960,15 +985,15 @@ void tftRadarUpdate() {
     for (int k = 0; k < 2; k++)
       if (prev_alX[k] >= 0)
         tft.fillRect(prev_alX[k], prev_alY[k], 7, 9, C_BLACK);
-    tft.drawCircle(RCX, RCY, RR,     0x0339);
-    tft.drawCircle(RCX, RCY, RR*2/3, 0x0339);
-    tft.drawCircle(RCX, RCY, RR/3,   0x0339);
-    tft.drawFastVLine(RCX, RCY - RR + 1, RR*2 - 1, 0x0339);
-    tft.drawFastHLine(RCX - RR + 1, RCY, RR*2 - 1, 0x0339);
+    tft.drawCircle(RCX, RCY, RR,     C_RING);
+    tft.drawCircle(RCX, RCY, RR*2/3, C_RING);
+    tft.drawCircle(RCX, RCY, RR/3,   C_RING);
+    tft.drawFastVLine(RCX, RCY - RR + 1, RR*2 - 1, C_RING);
+    tft.drawFastHLine(RCX - RR + 1, RCY, RR*2 - 1, C_RING);
   }
 
-  // Pass trajectory (skipped for GEO)
-  int len = isGeoSat ? 0 : globalPathLen;
+  // Trajectory (skipped for GEO)
+  int len = (isGeoSat || predBusy) ? 0 : globalPathLen;
   prev_alX[0] = prev_alX[1] = -1;
   if (len > 1) {
     int lastX = -1, lastY = -1;
@@ -976,9 +1001,9 @@ void tftRadarUpdate() {
     for (int i = 0; i < len; i++) {
       int px, py;
       toXY(globalPath[i].az, globalPath[i].el, px, py);
-      if (lastX != -1) tft.drawLine(lastX, lastY, px, py, C_LIME);
+      if (lastX != -1) tft.drawLine(lastX, lastY, px, py, C_AMBER);
       if (i == 0) {
-        tft.setTextColor(C_LIME);
+        tft.setTextColor(C_NEON);
         tft.setCursor(px - 3, py - 10); tft.print("A");
         prev_alX[0] = px - 3; prev_alY[0] = py - 10;
       } else if (i == len - 1) {
@@ -993,15 +1018,15 @@ void tftRadarUpdate() {
   // Antenna needle
   int antX, antY;
   toXY((float)currentAz, (float)currentEl, antX, antY);
-  tft.drawLine(RCX, RCY, antX, antY, C_BLUE);
-  tft.fillCircle(antX, antY, 3, C_CYAN);
+  tft.drawLine(RCX, RCY, antX, antY, C_MGRAY);
+  tft.fillCircle(antX, antY, 3, C_WHITE);
   prev_antX = antX; prev_antY = antY;
 
-  // Satellite dot (magenta, amber if GEO)
+  // Satellite dot
   if (targetEl > 0.0f) {
     int sX, sY;
     toXY((float)targetAz, (float)targetEl, sX, sY);
-    uint16_t c = isGeoSat ? C_AMBER : C_MAG;
+    uint16_t c = isGeoSat ? C_AMBER : C_NEON;
     tft.fillCircle(sX, sY, 4, c);
     tft.drawCircle(sX, sY, 7, c);
     prev_satX = sX; prev_satY = sY;
@@ -1053,7 +1078,7 @@ void setupWebServer() {
   });
 
   webServer.on("/api/path", HTTP_GET, [](AsyncWebServerRequest *request) {
-    if (!tleLoaded || !ntpSynced || !onboardMode) {
+    if (!tleLoaded || !ntpSynced || !onboardMode || predBusy) {
       request->send(200, "application/json", "[]"); return;
     }
     String json = "[";
@@ -1124,6 +1149,7 @@ void setupWebServer() {
           sat.init(satName, tleLine1, tleLine2);
           isGeoSat = tleIsGeo();
           tleLoaded = true;
+          nextAosTime = nextLosTime = 0;   // new target — clear old pass data
           lastPathCalc = 0;
           newPathReady = true;
           Serial.printf("[SGP4] TLE loaded: %s %s\n", satName, isGeoSat ? "(GEO)" : "");
@@ -1153,50 +1179,56 @@ void setupWebServer() {
   webServer.begin();
 }
 
-// ================= PASS PREDICTION =================
+// ================= PASS PREDICTION (HARDENED) =================
 void calculatePathPrediction() {
   if (!tleLoaded || !ntpSynced || !onboardMode || isAPMode) {
     globalPathLen = 0; newPathReady = true; return;
   }
 
-  Sgp4 p;
-  p.site(obsLat, obsLon, obsAlt);
-  p.init(satName, tleLine1, tleLine2);
-
   unsigned long nowT = timeClient.getEpochTime();
-  isGeoSat = tleIsGeo();
 
-  // GEO: live position only — correct elevation, no countdown
-  if (isGeoSat) {
-    p.findsat(nowT);
-    nextMaxEl   = p.satEl;
-    nextAosTime = (p.satEl > 0) ? (time_t)nowT : 0;
-    nextLosTime = 0;
-    globalPathLen = 0;
-    newPathReady  = true;
-    Serial.printf("[SGP4] GEO target. Live El: %.1f\n", (float)nextMaxEl);
+  // BUG FIX: never recalc with a bogus epoch (NTP hiccup used to wipe data)
+  if (nowT < 1000000000UL) {
+    Serial.println("[SGP4] Epoch invalid — skipping recalc, keeping last prediction.");
     return;
   }
 
-  // LEO/MEO: find AOS (60s scan, 10s refine — catches short passes)
+  predBusy = true;
+  predSat.site(obsLat, obsLon, obsAlt);
+  predSat.init(satName, tleLine1, tleLine2);
+  isGeoSat = tleIsGeo();
+
+  // GEO: live position only
+  if (isGeoSat) {
+    predSat.findsat(nowT);
+    nextMaxEl   = predSat.satEl;
+    nextAosTime = (predSat.satEl > 0) ? (time_t)nowT : 0;
+    nextLosTime = 0;
+    globalPathLen = 0;
+    predBusy = false;
+    newPathReady  = true;
+    return;
+  }
+
+  // LEO/MEO: find AOS (60s scan / 10s refine catches short passes)
   unsigned long t = nowT;
-  p.findsat(t);
+  predSat.findsat(t);
   bool found = false;
 
-  if (p.satEl > 0) {
+  if (predSat.satEl > 0) {
     int lim = 0;
-    while (p.satEl > 0 && lim++ < 80) {
-      t -= 30; p.findsat(t);
+    while (predSat.satEl > 0 && lim++ < 80) {
+      t -= 30; predSat.findsat(t);
       if (lim % 10 == 0) vTaskDelay(pdMS_TO_TICKS(2));
     }
     t += 30;
     found = true;
   } else {
     for (int i = 0; i < 1440 && !found; i++) {
-      t += 60; p.findsat(t);
-      if (p.satEl > 0) {
+      t += 60; predSat.findsat(t);
+      if (predSat.satEl > 0) {
         int lim = 0;
-        while (p.satEl > 0 && lim++ < 12) { t -= 10; p.findsat(t); }
+        while (predSat.satEl > 0 && lim++ < 12) { t -= 10; predSat.findsat(t); }
         t += 10;
         found = true;
       }
@@ -1205,36 +1237,49 @@ void calculatePathPrediction() {
   }
 
   if (!found) {
+    // BUG FIX: if the previous prediction is STILL VALID (pass not over yet),
+    // keep it instead of destroying good data on a transient search failure.
+    if (nextLosTime > (time_t)nowT || nextAosTime > (time_t)nowT) {
+      Serial.println("[SGP4] Recalc failed but existing prediction still valid — keeping it.");
+      predBusy = false;
+      return;
+    }
     nextAosTime = nextLosTime = 0;
     nextMaxEl = 0;
     globalPathLen = 0;
+    predBusy = false;
     newPathReady = true;
     return;
   }
 
-  nextAosTime = (time_t)t;
-
-  // Sample pass with independent counter (LOS != AOS guaranteed)
+  // Sample the pass into a temp buffer first, commit only on success
+  // (prevents half-written path data being displayed)
+  static PathPoint tmpPath[45];
   float maxEl = 0;
   int len = 0;
   unsigned long tt = t;
   for (int i = 0; i < 80; i++) {
-    p.findsat(tt);
-    if (p.satEl < 0 && i > 0) break;
-    if (p.satEl >= 0) {
-      if (p.satEl > maxEl) maxEl = p.satEl;
+    predSat.findsat(tt);
+    if (predSat.satEl < 0 && i > 0) break;
+    if (predSat.satEl >= 0) {
+      if (predSat.satEl > maxEl) maxEl = predSat.satEl;
       if (len < 45) {
-        globalPath[len].az = p.satAz;
-        globalPath[len].el = p.satEl;
+        tmpPath[len].az = predSat.satAz;
+        tmpPath[len].el = predSat.satEl;
         len++;
       }
     }
     tt += 30;
     if (i % 10 == 0) vTaskDelay(pdMS_TO_TICKS(2));
   }
+
+  // Atomic-ish commit
+  memcpy((void*)globalPath, tmpPath, sizeof(PathPoint) * len);
+  nextAosTime   = (time_t)t;
   nextLosTime   = (time_t)tt;
   nextMaxEl     = maxEl;
   globalPathLen = len;
+  predBusy      = false;
   newPathReady  = true;
   Serial.printf("[SGP4] Pass: AOS+%lds LOS+%lds MaxEl %.1f (%d pts)\n",
                 (long)(nextAosTime - nowT), (long)(nextLosTime - nowT), maxEl, len);
@@ -1268,7 +1313,11 @@ void Core0TaskCode(void *pvParameters) {
       }
     }
 
-    if (millis() - lastPathCalc > 60000 && !isAPMode) {
+    // Recalc every 60s, OR immediately when the tracked pass has just ended
+    bool passExpired = (nextLosTime > 0 && !isGeoSat &&
+                        (time_t)timeClient.getEpochTime() > nextLosTime &&
+                        millis() - lastPathCalc > 10000);
+    if ((millis() - lastPathCalc > 60000 || passExpired) && !isAPMode) {
       calculatePathPrediction();
       lastPathCalc = millis();
     }
@@ -1295,7 +1344,7 @@ void setup() {
   Serial.begin(115200);
   delay(500);
   Serial.println("\n====================================");
-  Serial.println(" ESP32 Aerospace Tracker v8.5 (ST7789)");
+  Serial.println(" ESP32 Orbital Ops v9.0 (ST7789)");
   Serial.println("====================================");
 
   esp_task_wdt_init(30, true);
@@ -1306,6 +1355,17 @@ void setup() {
   azStepper.setMaxSpeed(2000); azStepper.setAcceleration(1000);
   elStepper.setMaxSpeed(2000); elStepper.setAcceleration(1000);
 
+  // ── MPU6050: uncomment to enable IMU ──
+  // if (mpuInit()) {
+  //   mpuOK = true;
+  //   Serial.println("[IMU] MPU6050 online @ 0x68");
+  //   // Optional: zero the elevation axis from the IMU at boot
+  //   // for (int i = 0; i < 50; i++) { mpuRead(); delay(10); }
+  //   // elStepper.setCurrentPosition((long)(mpuPitch * STEPS_PER_DEG));
+  // } else {
+  //   Serial.println("[IMU] MPU6050 NOT FOUND — check wiring");
+  // }
+
   tft.init(240, 320);
   tft.setRotation(0);
   tft.invertDisplay(false);
@@ -1314,9 +1374,9 @@ void setup() {
 
   tft.fillScreen(C_BLACK);
   tft.fillRect(0, 0, 240, 18, C_HDRBG);
-  drawGradientLine(0, 18, 240, 2);
-  tft.setTextColor(C_CYAN); tft.setTextSize(1);
-  tft.setCursor(8, 5); tft.print("SYSTEM BOOT SEQUENCE...");
+  tft.fillRect(0, 18, 240, 2, C_NEON);
+  tft.setTextColor(C_NEON); tft.setTextSize(1);
+  tft.setCursor(8, 5); tft.print("BOOT SEQUENCE");
   terminalY = 28;
 
   printBootTerminal("Initializing LittleFS...");
@@ -1397,12 +1457,14 @@ void setup() {
     lastPathCalc = millis();
   }
 
-  printBootTerminal("Starting Tactical HUD...");
+  printBootTerminal("Starting Ops HUD...");
   delay(500);
   tftDrawStaticFrame();
   digitalWrite(ENABLE_PIN, LOW);
 
-  xTaskCreatePinnedToCore(Core0TaskCode, "Core0Task", 16384, NULL, 1, &Core0Task, 0);
+  // BUG FIX: stack raised 16K -> 24K. SGP4 prediction + TFT + JSON on this
+  // task was running close to the limit and corrupting tracking state.
+  xTaskCreatePinnedToCore(Core0TaskCode, "Core0Task", 24576, NULL, 1, &Core0Task, 0);
 }
 
 // ================= LOOP (CORE 1) =================
@@ -1424,6 +1486,13 @@ void loop() {
   currentAz = azStepper.currentPosition() / STEPS_PER_DEG;
   currentEl = elStepper.currentPosition() / STEPS_PER_DEG;
   isMoving  = azStepper.isRunning() || elStepper.isRunning();
+
+  // ── MPU6050: uncomment to enable wind-drift stabilization ──
+  // if (millis() - lastMpuRead > 200) {        // 5 Hz IMU sampling
+  //   mpuRead();
+  //   mpuStabilize();                          // re-zeros EL axis on drift
+  //   lastMpuRead = millis();
+  // }
 
   static unsigned long lastLog = 0;
   if (onboardMode) {
@@ -1474,6 +1543,7 @@ void parseEasyComm(String cmd) {
 // ================= SGP4 RUNTIME =================
 void runSGP4() {
   unsigned long now = timeClient.getEpochTime();
+  if (now < 1000000000UL) return;   // BUG FIX: never track with bad epoch
   sat.findsat(now);
 
   unsigned long curMs = millis();
@@ -1491,7 +1561,7 @@ void runSGP4() {
   targetAz = sat.satAz;
   targetEl = sat.satEl;
 
-  if (isGeoSat) nextMaxEl = sat.satEl;  // live GEO elevation
+  if (isGeoSat) nextMaxEl = sat.satEl;   // live GEO elevation
 
   if (sat.satEl >= 0.0) {
     if (!passInProgress) {
