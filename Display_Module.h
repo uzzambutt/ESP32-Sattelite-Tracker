@@ -1,4 +1,4 @@
-﻿#ifndef DISPLAY_MODULE_H
+#ifndef DISPLAY_MODULE_H
 #define DISPLAY_MODULE_H
 
 // ================= BOOT SCREENS =================
@@ -251,43 +251,101 @@ void tftDrawFootprintScreen(){
     return;
   }
 
+  const float Re = 6371.0f;
+  float altKm    = (float)satAltitude;
+  float distKm   = (float)satDistance;
+  float el       = (float)targetEl; if(el<0)el=0;
+  float az       = (float)targetAz;
+
+  // --- Accurate footprint geometry ---
+  // half-angle of footprint at Earth's centre (radians)
+  float footAngRad = acosf(Re / (Re + altKm));
+  float footKm     = satFootprintKm;           // = Re * footAngRad
+
+  // Elevation mask angle: min elevation at footprint edge = 0 deg by definition.
+  // Nadir angle from satellite to footprint edge (at satellite):
+  float nadirAngRad = asinf(Re * sinf(PI/2.0f + footAngRad) / (Re + altKm));
+  // coverage area on Earth surface (spherical cap, km^2)
+  float capArea = 2.0f * PI * Re * Re * (1.0f - cosf(footAngRad));
+
+  // --- Stats panel (top) ---
   char buf[40];
   tft.setTextColor(C_WHITE);tft.setCursor(4,22);
-  snprintf(buf,sizeof(buf),"SAT: %-20s",satName);tft.print(buf);
-  tft.setTextColor(C_MGRAY);tft.setCursor(4,33);
-  // (A4) satAltitude is the true orbital altitude; slant range
-  // (satDistance) is the line-of-sight distance, NOT the altitude.
-  snprintf(buf,sizeof(buf),"ALT: %.0f km",(float)satAltitude);tft.print(buf);
-  tft.setCursor(4,44);
-  snprintf(buf,sizeof(buf),"FOOTPRINT R: %.0f km",satFootprintKm);tft.print(buf);
-  tft.setCursor(4,55);
-  snprintf(buf,sizeof(buf),"SLANT RANGE: %.0f km",(float)satDistance);tft.print(buf);
+  snprintf(buf,sizeof(buf),"%-20s",satName);tft.print(buf);
 
-  // Draw a simple overhead view circle representing footprint
-  int cx=120,cy=175,maxR=90;
-  // Observer at centre
-  tft.drawCircle(cx,cy,3,C_AMBER);
-  // Footprint ring â€” scale: 12000 km = full maxR
-  int fpPx=(int)((satFootprintKm/12000.0f)*maxR);
-  fpPx=constrain(fpPx,5,maxR);
-  tft.drawCircle(cx,cy,fpPx,C_NEON);
-  // Horizon ring
+  tft.setTextColor(C_MGRAY);
+  tft.setCursor(4,33);
+  snprintf(buf,sizeof(buf),"ALT %5.0f km  SLANT %5.0f km",altKm,distKm);tft.print(buf);
+  tft.setCursor(4,44);
+  snprintf(buf,sizeof(buf),"FP-R %5.0f km  ARC %4.1f deg",footKm,footAngRad*180.0f/PI);tft.print(buf);
+  tft.setCursor(4,55);
+  snprintf(buf,sizeof(buf),"AREA %7.0f km2  EL %4.1f deg",capArea,el);tft.print(buf);
+
+  // --- Overhead map ---
+  // Scale: Re = maxR pixels, so the whole hemisphere fits in the circle.
+  // The ground circle has radius maxR, representing Re km from observer.
+  const int cx=120, cy=182, maxR=88;
+
+  // Horizon ring (= full earth-scale circle)
   tft.drawCircle(cx,cy,maxR,C_DGRAY);
-  // Satellite position dot on the overhead map
-  // Use elevation to position: el=90 â†’ at centre, el=0 â†’ at horizon
-  float el=(float)targetEl;if(el<0)el=0;
-  float az=(float)targetAz;
-  float satR=maxR*(1.0f-el/90.0f);
-  float satRad=(az-90.0f)*PI/180.0f;
-  int sx=cx+(int)(satR*cosf(satRad));
-  int sy=cy+(int)(satR*sinf(satRad));
-  sx=constrain(sx,cx-maxR,cx+maxR);sy=constrain(sy,cy-maxR,cy+maxR);
+  // 30-deg / 60-deg elevation rings mapped to ground-distance scale
+  // Simpler: ring at 1/3 and 2/3 of maxR
+  tft.drawCircle(cx,cy,maxR/3,C_FAINT);
+  tft.drawCircle(cx,cy,maxR*2/3,C_FAINT);
+  // Cross-hairs
+  tft.drawFastVLine(cx,cy-maxR,maxR*2,C_FAINT);
+  tft.drawFastHLine(cx-maxR,cy,maxR*2,C_FAINT);
+
+  // Observer dot at centre
+  tft.fillCircle(cx,cy,3,C_AMBER);
+  tft.setTextColor(C_AMBER);tft.setTextSize(1);
+  tft.setCursor(cx+5,cy-4);tft.print("OBS");
+
+  // Sub-satellite nadir point position
+  float elRad = el * PI / 180.0f;
+  float rhoRad = PI/2.0f - elRad - asinf(Re * cosf(elRad) / (Re + altKm));
+  if(rhoRad < 0) rhoRad = 0;
+  float nadirGroundKm = Re * rhoRad;
+  int nadirPx = (int)((nadirGroundKm / Re) * maxR);  // Re km = maxR px
+  nadirPx = constrain(nadirPx, 0, maxR);
+
+  float azRad = (az - 90.0f) * PI / 180.0f;
+  int nx = cx + (int)(nadirPx * cosf(azRad));
+  int ny = cy + (int)(nadirPx * sinf(azRad));
+  nx=constrain(nx,cx-maxR,cx+maxR);
+  ny=constrain(ny,cy-maxR,cy+maxR);
+
+  // Footprint circle: radius in km mapped to pixels (Re km = maxR px)
+  int fpPx = (int)((footKm / Re) * maxR);
+  fpPx = constrain(fpPx, 5, maxR*2);
+
+  // Draw footprint circle centred on nadir
+  tft.drawCircle(nx,ny,min(fpPx,maxR+10),C_NEON);
+  // Inner glow ring
+  if(fpPx > 6) tft.drawCircle(nx,ny,fpPx-3,C_PNLG);
+
+  // Satellite dot at sky position (el/az → polar, centre=zenith, edge=horizon)
+  float satR = maxR * (1.0f - el / 90.0f);
+  int sx = cx + (int)(satR * cosf(azRad));
+  int sy = cy + (int)(satR * sinf(azRad));
+  sx=constrain(sx,cx-maxR,cx+maxR);
+  sy=constrain(sy,cy-maxR,cy+maxR);
   tft.fillCircle(sx,sy,4,C_NEON);
   tft.setTextColor(C_NEON);tft.setCursor(sx+6,sy-4);tft.print("SAT");
 
+  // Nadir cross
+  tft.drawLine(nx-5,ny,nx+5,ny,C_PRIMARY);
+  tft.drawLine(nx,ny-5,nx,ny+5,C_PRIMARY);
+
   // Labels
-  tft.setTextColor(C_AMBER);tft.setCursor(cx-4,cy-4);tft.print("*");
-  tft.setTextColor(C_DGRAY);tft.setCursor(cx-5,cy-maxR-9);tft.print("HORIZ");
+  tft.setTextColor(C_DGRAY);tft.setTextSize(1);
+  tft.setCursor(cx-4,cy-maxR-9);tft.print("N");
+  tft.setCursor(cx+maxR+3,cy-4);tft.print("E");
+
+  // Coverage % of Earth surface
+  float covPct = (capArea / (4.0f*PI*Re*Re)) * 100.0f;
+  tft.setTextColor(C_MGRAY);tft.setCursor(4,273);
+  snprintf(buf,sizeof(buf),"COV %.2f%% of Earth",covPct);tft.print(buf);
 
   tft.fillRect(0,300,240,20,C_HDRBG);tft.fillRect(0,298,240,2,C_CYAN);
   tft.setTextColor(C_CYAN);tft.setCursor(6,307);tft.print("BTN: NEXT SCREEN");

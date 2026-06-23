@@ -744,12 +744,12 @@ void Core0TaskCode(void *pvParameters){
     // Weather fetch
     if(millis()-lastWeather>WEATHER_INTERVAL_MS&&!isAPMode){fetchWeather();lastWeather=millis();}
 
-    // Schedule compute every 30 min, OR immediately when the queue changed
-    // or the web UI requested a refresh (scheduleDirty). BUG FIX (A3):
-    // previously it only ran at boot + 30-min, so sats queued after boot
-    // never appeared in the schedule â€” "only shows the current TLE".
-    if((scheduleDirty||millis()-lastSchedule>1800000)&&!isAPMode&&queueCount>0){
-      scheduleDirty=false;computeSchedule();lastSchedule=millis();
+    // Schedule compute: run in a dedicated task so Core0 (TFT / WiFi) never freezes.
+    // We only spawn the task when not already running (schedTaskRunning guard).
+    static volatile bool schedTaskRunning=false;
+    if((scheduleDirty||millis()-lastSchedule>1800000)&&!isAPMode&&queueCount>0&&!schedTaskRunning){
+      scheduleDirty=false;lastSchedule=millis();schedTaskRunning=true;
+      xTaskCreatePinnedToCore([](void* p){computeSchedule();*((volatile bool*)p)=false;vTaskDelete(NULL);},"SchedTask",8192,(void*)&schedTaskRunning,1,NULL,0);
     }
 
     if(millis()-lastWsPush>1000&&!isAPMode){if(ws.count()>0)ws.textAll(buildTelemetryJson());lastWsPush=millis();}
