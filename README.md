@@ -1,4 +1,4 @@
-﻿# ESP32 Satellite Tracker — Orbital Ops v10.0
+# ESP32 Satellite Tracker — Orbital Ops v10.0
 
 **Developer:** Muhammad Uzzam Butt
 **Repository:** https://github.com/uzzambutt/ESP32-Sattelite-Tracker
@@ -38,16 +38,18 @@ An ESP32-based automated satellite tracking system that drives a two-axis antenn
 - Two-axis antenna control (azimuth and elevation) using AccelStepper with smooth acceleration
 - Satellite queue: track up to 8 satellites sequentially, with automatic advancement after each pass
 - 24-hour pass schedule computed for all queued satellites simultaneously, sorted by AOS time
-- Real-time Doppler frequency shift calculation based on range-rate (referenced to 145.8 MHz)
+- Real-time Doppler frequency shift calculation for multi-band (145.8, 435.8, 1268.0 MHz)
 - Accurate satellite footprint computation using true orbital altitude and Earth-radius geometry
+- Atmospheric drag refraction correction (Bennett 1982) for low-elevation passes
 
 **Displays**
-- 240x320 ST7789 TFT with 5 cycling screens:
+- 240x320 ST7789 TFT with 6 cycling screens:
   - Main HUD: target/current Az/El, pass countdown, Doppler, range, signal bars, radar
   - Pass Schedule: next 24 h passes for all queued satellites
   - IMU Drift Graph: real-time Kalman error history plot
   - Satellite Footprint: geometrically accurate overhead map with nadir, coverage area, arc angle
-  - Weather: temperature, feels-like, wind speed/direction, humidity, pressure
+  - Orbital Elements: Inclination, RAAN, Eccentricity, Period, Perigee/Apogee, Orbit Type, TLE Age
+  - Weather: temperature, feels-like, wind speed/direction, humidity, pressure, NOAA Kp Index
 - Animated radar with satellite trajectory, AOS/LOS markers, and physics-based footprint ring
 - Linux-style boot log with colour-coded status tags on TFT
 
@@ -62,8 +64,9 @@ An ESP32-based automated satellite tracking system that drives a two-axis antenn
 **Sensors and Intelligence**
 - MPU6050 IMU with two-axis Kalman filter
 - Accelerometer spike rejection, gyro deadband, and software low-pass filter
-- Optional IMU-assisted elevation correction when stepper is idle
+- **Note:** The MPU6050 is a 6-axis IMU (Gyro+Accel) and only measures gravity vectors. It can correct wind-drift or step-skipping on the **Elevation** axis, but it cannot determine absolute Azimuth heading without a magnetometer.
 - NTP time synchronisation via pool.ntp.org
+- Real-time NOAA Space Weather (Geomagnetic Kp index) parsing
 
 **Persistence**
 - TLE stored to LittleFS (/tle.txt) and re-loaded on boot
@@ -271,30 +274,15 @@ If WiFi fails after 15 seconds, the tracker creates a hotspot named AEROSPACE-TR
 
 Browse to http://sattracker.local or the IP address shown on the TFT.
 
-The dashboard polls /api/status every 500 ms and maintains a live WebSocket connection for push updates.
+The dashboard polls /api/status every 500 ms and maintains a live WebSocket connection for push updates. The dashboard is served by the ESP32 over port 80 and provides a complete SpaceX/Tesla style UI with animations and glassmorphism. It includes:
 
-### Panels
-
-**Tactical Radar**
-An animated polar plot showing the satellite position, predicted trajectory arc with AOS/LOS markers, the current antenna needle, and a physics-based footprint ring. Includes a directional joystick for manual nudge in external mode.
-
-**Weather**
-Current conditions for the configured city or observer coordinates. Includes temperature, feels-like, wind with 16-point compass, humidity, and pressure. The city input field at the top of the panel overrides the location.
-
-**Telemetry**
-Live target Az/El, IMU pitch/roll and status, wind speed, WiFi RSSI, uptime, and free heap.
-
-**Orbital Database**
-Downloads the active Celestrak catalogue, filters it, and lets you select a satellite to upload as the primary TLE or add to the queue.
-
-**Satellite Queue**
-Shows all queued satellites. The actively tracked satellite is highlighted. Each entry has an instant-remove button.
-
-**Pass Schedule (24 h)**
-Lists upcoming passes for all queued satellites sorted by AOS. Click REFRESH SCHEDULE to trigger a recompute. Computation runs in a background FreeRTOS task to avoid display interruption.
-
-**Pass Log**
-Last 10 completed passes with satellite name, UTC start time, and maximum elevation.
+1. **Top Bar**: Weather, NOAA Kp index, UTC clock, status badges, and Night Mode toggle.
+2. **Telemetry Stat-Strip**: Real-time Azimuth, Elevation, Range, and Doppler shift.
+3. **Tactical Radar**: An animated sweeping radar with ghost trails, target lock beam, footprint ring, and crosshairs. Includes manual joystick controls.
+4. **World Map Ground Track**: Real-time display of the satellite over an equirectangular world map with its physics-based visibility footprint.
+5. **Orbital Database**: Upload raw 3-line TLEs or pull from Celestrak, view the active queue with live visibility dots, and parse raw orbital elements.
+6. **24-Hour Pass Schedule**: Displays upcoming passes with maximum elevations and pass quality grades (A/B/C/F). Can be exported to CSV.
+7. **QSO Log**: Store manual QSO/contact logs in your browser's local storage with timestamps.
 
 ---
 
