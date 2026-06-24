@@ -166,12 +166,18 @@ body.night #nightBtn{background:#ef4444!important; color:#000!important}
 <div id="wxBody">
 <div style="color:#7a7493;font-size:.8rem">Loading...</div>
 </div></div>
+
+<div class="panel" style="margin-top:14px"><div class="ph">IN SPACE NOW</div>
+<div id="astroBody"><div style="color:#7a7493;font-size:.8rem">Connecting to Open-Notify API...</div></div>
+</div>
+
 </div>
 
 <!-- RIGHT COLUMN -->
 <div>
 <div class="panel" style="margin-bottom:14px"><div class="ph">TELEMETRY</div>
 <div class="row"><span class="k">TARGET AZ / EL</span><span class="v vg" id="tgt">--° / --°</span></div>
+<div class="row"><span class="k">ANT POL SQUINT</span><span class="v" id="squint" style="color:#b9a0dc">--°</span></div>
 <div class="row"><span class="k">IMU PITCH / ROLL</span><span class="v va" id="imuAngles">-- / --</span></div>
 <div class="row"><span class="k">IMU STATUS</span><span class="v" id="imuStatus">--</span></div>
 <div class="row"><span class="k">WIND SPEED</span><span class="v" id="windSpd">-- m/s</span></div>
@@ -198,6 +204,10 @@ body.night #nightBtn{background:#ef4444!important; color:#000!important}
 <div style="font-size:.65rem;letter-spacing:2px;color:#7a7493;margin-bottom:6px">PASTE RAW TLE (3 LINES)</div>
 <textarea id="raw-tle-input" class="raw-tle-area" rows="3" placeholder="Satellite Name&#10;1 NNNNNC 00000A ...&#10;2 NNNNN ..."></textarea>
 <button onclick="pushRawTLE()" style="border-color:#b9a0dc;color:#b9a0dc">UPLOAD RAW TLE</button>
+<div style="display:flex;gap:8px;margin-top:8px">
+<button onclick="trackSun()" style="flex:1;background:rgba(255,145,0,0.1);color:#ff9100;border-color:#ff9100">TRACK SUN</button>
+<button onclick="trackMoon()" style="flex:1;background:rgba(200,200,255,0.1);color:#c8c8ff;border-color:#c8c8ff">TRACK MOON</button>
+</div>
 </div></div>
 
 <div class="panel" style="margin-bottom:14px"><div class="ph">ORBITAL ELEMENTS</div>
@@ -255,6 +265,23 @@ let satFootprintRadius=0,satDist=1;
 
 setInterval(()=>{document.getElementById('utcClock').innerText=new Date().toISOString().substr(11,8)+' UTC'},1000);
 
+async function fetchAstronauts() {
+  try {
+    const res = await fetch('http://api.open-notify.org/astros.json');
+    const data = await res.json();
+    let html = '<div style="font-size:0.8rem;color:#7a7493;margin-bottom:8px">TOTAL: <span style="color:var(--acc)">'+data.number+'</span> HUMANS</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:220px;overflow-y:auto;padding-right:4px">';
+    data.people.forEach(p => {
+       html += '<div style="background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.05);padding:8px;border-radius:6px;font-size:0.8rem"><span style="color:var(--acc);font-weight:600">'+p.name+'</span><br><span style="font-size:0.65rem;color:#7a7493">CRAFT: '+p.craft+'</span></div>';
+    });
+    html += '</div>';
+    document.getElementById('astroBody').innerHTML = html;
+  } catch(e) {
+    document.getElementById('astroBody').innerHTML = '<div style="color:var(--red);font-size:0.8rem">API Unreachable</div>';
+  }
+}
+setTimeout(fetchAstronauts, 1000);
+
+
 async function fetchTelemetry(){
  try{
   const r=await fetch('/api/status',{cache:'no-store'});
@@ -271,6 +298,7 @@ async function fetchTelemetry(){
   document.getElementById('satDist').innerText=(d.dist||0).toFixed(0);
   document.getElementById('doppler').innerText=(d.doppler||0).toFixed(0);
   document.getElementById('tgt').innerText=targetAz.toFixed(1)+'° / '+targetEl.toFixed(1)+'°';
+  document.getElementById('squint').innerText=(d.squint||0).toFixed(1)+'°';
   document.getElementById('rssi').innerText=d.rssi+' dBm';
   document.getElementById('ram').innerText=d.freeHeap+' KB';
   const up=d.uptime;
@@ -517,9 +545,10 @@ async function loadSchedule(){
    const losD=new Date(p.los*1000);
    const fmt=d=>d.toUTCString().substr(17,5);
    const g=passGrade(p.maxEl);
+   const scoreStr=(p.score!==undefined) ? `<span style="margin-right:6px;font-size:0.7rem;color:${p.score>70?'var(--acc)':p.score>40?'#ff9100':'var(--red)'}">${p.score.toFixed(0)}%</span>` : '';
    return '<div class="sched-row"><span class="sched-sat">'+p.sat+'</span>'+
    '<span class="sched-time">'+fmt(aosD)+'-'+fmt(losD)+'</span>'+
-   '<span class="sched-el">'+p.maxEl.toFixed(1)+''+g+'</span></div>';
+   '<span class="sched-el">'+scoreStr+p.maxEl.toFixed(1)+'°'+g+'</span></div>';
   }).join('');
  }catch(e){document.getElementById('schedBody').innerHTML='Error';}
 }
@@ -549,6 +578,20 @@ async function pushRawTLE(){
   if(j.status==='ok'){alert('TLE uploaded: '+lines[0]);document.getElementById('raw-tle-input').value='';}
   else alert('Upload failed.');
  }catch(e){alert('Error: '+e);}
+}
+
+async function trackSun() {
+ try{
+  await fetch('/api/tle',{method:'POST',headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:"SUN",line1:"",line2:""})});
+  document.getElementById('raw-tle-input').value='';
+ }catch(e){}
+}
+
+async function trackMoon() {
+ try{
+  await fetch('/api/tle',{method:'POST',headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:"MOON",line1:"",line2:""})});
+  document.getElementById('raw-tle-input').value='';
+ }catch(e){}
 }
 
 let _qsoSat='';

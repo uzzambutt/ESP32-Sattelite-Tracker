@@ -20,6 +20,11 @@
 #define BTN_PIN     0       // IO0 — BOOT button on most ESP32 devboards
 #define SCREEN_COUNT 6
 
+// ── Hardware GPS Module (NEO-6M / UART) ────────────────────────
+#define GPS_ENABLED 1
+#define GPS_RX_PIN 16
+#define GPS_TX_PIN 17
+
 // ── Satellite queue ────────────────────────────────────────────
 #define MAX_QUEUED_SATS 8
 
@@ -40,6 +45,10 @@
 #define PARK_IDLE_SEC   300   // park after 5 min idle with no pass
 #define PARK_AZ         0.0f
 #define PARK_EL         0.0f
+#define PRE_POINT_SEC   120   // move to AOS start position 2 mins before pass
+
+// ── Zenith Pass / Over-the-top flip ────────────────────────────
+#define ALLOW_FLIP_OVER false // Set true if your mount can tilt 0 to 180 degrees backwards
 
 // ── Weather ────────────────────────────────────────────────────
 #define WEATHER_INTERVAL_MS  600000UL  // fetch every 10 min

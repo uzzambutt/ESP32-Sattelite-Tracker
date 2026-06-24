@@ -23,6 +23,7 @@
 // ================================================================
 #include <Wire.h>
 #include "Config.h"
+#include "Celestial_Math.h"
 
 // -- Kalman filter state (replaces complementary filter) ---------
 // Two independent 2-state Kalman filters, one per axis.
@@ -112,6 +113,7 @@ struct ScheduledPass {
   time_t  los;
   float   maxEl;
   float   aosAz;
+  float   probScore; // Heuristic viability score (0-100)
 };
 ScheduledPass schedule[MAX_SCHEDULED_PASSES];
 int  scheduleCount   = 0;
@@ -160,20 +162,27 @@ Sgp4            sat;
 static Sgp4     predSat;
 static Sgp4     schedSat;  // dedicated instance for schedule computation
 
+#if GPS_ENABLED
+HardwareSerial gpsSerial(2);
+#endif
+
 // ================= STATE =================
 char  tleLine1[70]="";
 char  tleLine2[70]="";
 char  satName[25] ="NO SAT";
 volatile bool   tleLoaded    =false;
+volatile bool   isGeoSat     =false;
+volatile bool   isSun        =false;
+volatile bool   isMoon       =false;
 volatile bool   spiLock      =false;
 volatile float  currentAz    =0,currentEl=0;
 volatile float  targetAz     =0,targetEl =0;
+volatile float  polarizationSquint = 0;
 volatile bool   isMoving     =false;
 const float     STEPS_PER_DEG=8.88f;
 volatile bool   onboardMode  =false;
 volatile bool   isAPMode     =false;
 volatile bool   triggerReboot=false;
-volatile bool   isGeoSat     =false;
 double obsLat=31.52,obsLon=74.35,obsAlt=0.21;
 String maidenhead="MM71dl";
 volatile bool   ntpSynced    =false;
@@ -505,12 +514,26 @@ static const char* windCompass(float deg){
   return lbl[i];
 }
 
-// ================= AUTO-PARK (feature 1) =================
+// ================= AUTO-PARK (feature 1) & PRE-POINT =================
 void checkAutopark(){
   if(isAPMode||!onboardMode)return;
-  bool passActive=(nextAosTime>0&&(time_t)timeClient.getEpochTime()>=nextAosTime&&
-                   (time_t)timeClient.getEpochTime()<=nextLosTime);
+  unsigned long nowEpoch = timeClient.getEpochTime();
+  bool passActive=(nextAosTime>0 && (time_t)nowEpoch>=nextAosTime && (time_t)nowEpoch<=nextLosTime);
+  bool prePointActive=(nextAosTime>0 && (time_t)nowEpoch>=nextAosTime-PRE_POINT_SEC && (time_t)nowEpoch<nextAosTime);
+  
   if(passActive){lastActiveMs=millis();parked=false;return;}
+  
+  if(prePointActive){
+     if(parked) { Serial.println("[PRE-POINT] Slewing to AOS coordinates"); }
+     parked=false;
+     lastActiveMs=millis();
+     if(globalPathLen>0) {
+        targetAz = globalPath[0].az;
+        targetEl = globalPath[0].el;
+     }
+     return;
+  }
+  
   if(isMoving){lastActiveMs=millis();}
   if(!parked&&millis()-lastActiveMs>PARK_IDLE_SEC*1000UL){
     parked=true;
@@ -529,13 +552,21 @@ void advanceQueue(){
   // Load next satellite
   if(queueCount>0&&satQueue[0].valid){
     strncpy(satName,satQueue[0].name,24);
-    strncpy(tleLine1,satQueue[0].line1,69);
-    strncpy(tleLine2,satQueue[0].line2,69);
-    sat.site(obsLat,obsLon,obsAlt);
-    sat.init(satName,tleLine1,tleLine2);
-    isGeoSat=tleIsGeo();tleLoaded=true;
-    nextAosTime=nextLosTime=0;lastPathCalc=0;newPathReady=true;
-    Serial.printf("[QUEUE] Advanced to: %s\n",satName);
+    isSun=(strcmp(satName,"SUN")==0);
+    isMoon=(strcmp(satName,"MOON")==0);
+    if(isSun||isMoon){
+      tleLoaded=true;isGeoSat=false;
+      nextAosTime=nextLosTime=0;lastPathCalc=0;newPathReady=true;
+      Serial.printf("[QUEUE] Advanced to celestial: %s\n",satName);
+    }else{
+      strncpy(tleLine1,satQueue[0].line1,69);
+      strncpy(tleLine2,satQueue[0].line2,69);
+      sat.site(obsLat,obsLon,obsAlt);
+      sat.init(satName,tleLine1,tleLine2);
+      isGeoSat=tleIsGeo();tleLoaded=true;
+      nextAosTime=nextLosTime=0;lastPathCalc=0;newPathReady=true;
+      Serial.printf("[QUEUE] Advanced to: %s\n",satName);
+    }
   }
 }
 
@@ -549,6 +580,7 @@ void computeSchedule(){
 
   for(int q=0;q<queueCount&&scheduleCount<MAX_SCHEDULED_PASSES;q++){
     if(!satQueue[q].valid)continue;
+    if(strcmp(satQueue[q].name,"SUN")==0 || strcmp(satQueue[q].name,"MOON")==0)continue;
     schedSat.site(obsLat,obsLon,obsAlt);
     schedSat.init(satQueue[q].name,satQueue[q].line1,satQueue[q].line2);
 
@@ -571,12 +603,25 @@ void computeSchedule(){
           tt+=30;
           if(tt-t>7200)break; // safety
         }
+        // Calculate Viability / Probability Score
+        float pScore = 20.0f + (maxEl * 0.8f); // Base score from elevation
+        if(spaceWx.valid) {
+          if(spaceWx.kp >= 6) pScore -= 40.0f;       // Severe storm kills VHF/UHF
+          else if(spaceWx.kp >= 4) pScore -= 15.0f;  // Unsettled
+        }
+        if(weather.valid) {
+          if(weather.windMps > 15) pScore -= 20.0f;  // High wind shakes the antenna
+        }
+        if(pScore < 0) pScore = 0;
+        if(pScore > 99.9f) pScore = 99.9f;
+
         // Record
         strncpy(schedule[scheduleCount].satName,satQueue[q].name,24);
         schedule[scheduleCount].aos=aosT;
         schedule[scheduleCount].los=(time_t)tt;
         schedule[scheduleCount].maxEl=maxEl;
         schedule[scheduleCount].aosAz=aosAz;
+        schedule[scheduleCount].probScore=pScore;
         scheduleCount++;
         t=tt+60; // skip past this pass
       } else {
@@ -634,6 +679,7 @@ String buildTelemetryJson(){
   doc["geo"]=isGeoSat;doc["parked"]=parked;
   doc["imuPitch"]=(float)imuPitch;doc["imuRoll"]=(float)imuRoll;doc["imuOK"]=imuOK;
   doc["footprintR"]=(float)satFootprintKm;
+  doc["squint"]=(float)polarizationSquint;
   doc["wxCityOverride"]=weatherCityName;
   // Space weather
   doc["kpValid"]=spaceWx.valid;
@@ -670,7 +716,7 @@ String buildTelemetryJson(){
 }
 
 // ================= FORWARD DECLARATIONS =================
-void parseEasyComm(String cmd);
+bool parseEasyComm(String cmd);
 void runSGP4();
 void calculatePathPrediction();
 void tftDrawStaticFrame();
@@ -722,7 +768,7 @@ void setupWebServer(){
 
   webServer.on("/api/schedule",HTTP_GET,[](AsyncWebServerRequest *r){
     if(!scheduleReady){r->send(200,"application/json","[]");return;}
-    String j="[";for(int i=0;i<scheduleCount;i++){if(i)j+=",";j+="{\"sat\":\""+String(schedule[i].satName)+"\",\"aos\":"+String((long)schedule[i].aos)+",\"los\":"+String((long)schedule[i].los)+",\"maxEl\":"+String(schedule[i].maxEl,1)+",\"aosAz\":"+String(schedule[i].aosAz,1)+"}";}
+    String j="[";for(int i=0;i<scheduleCount;i++){if(i)j+=",";j+="{\"sat\":\""+String(schedule[i].satName)+"\",\"aos\":"+String((long)schedule[i].aos)+",\"los\":"+String((long)schedule[i].los)+",\"maxEl\":"+String(schedule[i].maxEl,1)+",\"aosAz\":"+String(schedule[i].aosAz,1)+",\"score\":"+String(schedule[i].probScore,1)+"}";}
     r->send(200,"application/json",j+"]");
   });
 
@@ -753,24 +799,27 @@ void setupWebServer(){
     [](AsyncWebServerRequest *r,uint8_t *data,size_t len,size_t,size_t){
       StaticJsonDocument<512> doc;if(!deserializeJson(doc,String((char*)data,len))){
         String name=doc["name"]|"UNKNOWN",l1=doc["line1"]|"",l2=doc["line2"]|"";
-        if(l1.length()>0&&l2.length()>0){
-          File f=LittleFS.open("/tle.txt","w");if(f){f.println(name);f.println(l1);f.println(l2);f.close();}
-          name.toCharArray(satName,25);l1.toCharArray(tleLine1,70);l2.toCharArray(tleLine2,70);
-          sat.site(obsLat,obsLon,obsAlt);sat.init(satName,tleLine1,tleLine2);
-          isGeoSat=tleIsGeo();tleLoaded=true;nextAosTime=nextLosTime=0;lastPathCalc=0;newPathReady=true;
-          // Also add to queue head. BUG FIX (A2): the old code did the
-          // memmove WITHOUT bounding to MAX_QUEUED_SATS, so a full queue
-          // wrote satQueue[8] out of bounds. Now we cap before inserting.
-          if(queueCount>=MAX_QUEUED_SATS){
-            queueCount=MAX_QUEUED_SATS-1;   // drop the tail slot to make room
+        bool isCelestial = (name=="SUN"||name=="MOON");
+        if(isCelestial || (l1.length()>0&&l2.length()>0)){
+          if(!isCelestial) {
+            File f=LittleFS.open("/tle.txt","w");if(f){f.println(name);f.println(l1);f.println(l2);f.close();}
+            name.toCharArray(satName,25);l1.toCharArray(tleLine1,70);l2.toCharArray(tleLine2,70);
+            sat.site(obsLat,obsLon,obsAlt);sat.init(satName,tleLine1,tleLine2);
+            isGeoSat=tleIsGeo();
+          } else {
+            name.toCharArray(satName,25);tleLine1[0]='\0';tleLine2[0]='\0';
+            isGeoSat=false;
           }
+          isSun=(strcmp(satName,"SUN")==0);isMoon=(strcmp(satName,"MOON")==0);
+          tleLoaded=true;nextAosTime=nextLosTime=0;lastPathCalc=0;newPathReady=true;
+          if(queueCount>=MAX_QUEUED_SATS) queueCount=MAX_QUEUED_SATS-1;
           memmove(&satQueue[1],&satQueue[0],sizeof(QueuedSat)*queueCount);
           strncpy(satQueue[0].name,satName,24);
           strncpy(satQueue[0].line1,tleLine1,69);
           strncpy(satQueue[0].line2,tleLine2,69);
           satQueue[0].valid=true;queueCount++;queueHead=0;
-          scheduleDirty=true;   // (A3) queue changed â€” recompute schedule
-          Serial.printf("[SGP4] TLE: %s %s\n",satName,isGeoSat?"(GEO)":"");
+          scheduleDirty=true;
+          Serial.printf("[TRACK] Switched to: %s\n",satName);
         }
       }
     });
@@ -782,12 +831,13 @@ void setupWebServer(){
       }
       StaticJsonDocument<512> doc;if(!deserializeJson(doc,String((char*)data,len))){
         String name=doc["name"]|"",l1=doc["line1"]|"",l2=doc["line2"]|"";
-        if(name.length()>0&&l1.length()>0){
+        bool isCel = (name=="SUN"||name=="MOON");
+        if(name.length()>0 && (isCel || l1.length()>0)){
           strncpy(satQueue[queueCount].name,name.c_str(),24);
           strncpy(satQueue[queueCount].line1,l1.c_str(),69);
           strncpy(satQueue[queueCount].line2,l2.c_str(),69);
           satQueue[queueCount].valid=true;queueCount++;
-          scheduleDirty=true;   // (A3) recompute schedule for the new sat
+          scheduleDirty=true;
           Serial.printf("[QUEUE] Added: %s (%d total)\n",satQueue[queueCount-1].name,queueCount);
         }
       }
@@ -821,6 +871,7 @@ void setupWebServer(){
 // ================= PASS PREDICTION =================
 void calculatePathPrediction(){
   if(!tleLoaded||!ntpSynced||!onboardMode||isAPMode){globalPathLen=0;newPathReady=true;return;}
+  if(isSun||isMoon){globalPathLen=0;predBusy=false;newPathReady=true;return;}
   unsigned long nowT=timeClient.getEpochTime();
   if(nowT<1000000000UL)return;
   predBusy=true;predSat.site(obsLat,obsLon,obsAlt);predSat.init(satName,tleLine1,tleLine2);isGeoSat=tleIsGeo();
@@ -843,7 +894,14 @@ void Core0TaskCode(void *pvParameters){
     if(WiFi.status()==WL_CONNECTED&&!isAPMode)if(timeClient.update())ntpSynced=true;
     if(millis()-lastWifiCheck>10000&&!isAPMode){lastWifiCheck=millis();if(WiFi.status()!=WL_CONNECTED)WiFi.reconnect();}
     if(!tcpClient||!tcpClient.connected()){tcpClient=tcpServer.available();if(tcpClient)tcpClient.setNoDelay(true);}
-    if(tcpClient&&tcpClient.available()){tcpClient.setTimeout(5);String cmd=tcpClient.readStringUntil('\n');if(cmd.length()>0){if(!onboardMode&&!isAPMode)parseEasyComm(cmd);tcpClient.println("OK");}}
+    if(tcpClient&&tcpClient.available()){tcpClient.setTimeout(5);String cmd=tcpClient.readStringUntil('\n');if(cmd.length()>0){bool ack=false;if(!onboardMode&&!isAPMode)ack=parseEasyComm(cmd);if(!ack)tcpClient.println("OK");}}
+
+#if GPS_ENABLED
+    while(gpsSerial.available()){
+      String nmea = gpsSerial.readStringUntil('\n');
+      processNMEA(nmea);
+    }
+#endif
 
     bool passExpired=(nextLosTime>0&&!isGeoSat&&(time_t)timeClient.getEpochTime()>nextLosTime&&millis()-lastPathCalc>10000);
     if((millis()-lastPathCalc>60000||passExpired)&&!isAPMode){calculatePathPrediction();lastPathCalc=millis();}
@@ -916,6 +974,11 @@ void setup(){
   terminalY+=11;
   tft.setTextColor(C_MGRAY);tft.setCursor(4,terminalY);tft.print("Welcome to Orbital Ops v10.0");
   terminalY+=11;
+
+#if GPS_ENABLED
+  gpsSerial.begin(9600, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
+  printBootLine("GPS module init on UART2",2);
+#endif
 
   printBootLine("Initializing IMU...",2);
   if(mpuBegin()){
@@ -1018,14 +1081,34 @@ void loop(){
     Serial.printf("[BTN] Screen %d\n",currentScreen);
   }
 
-  targetEl=constrain((float)targetEl,0.0f,90.0f);
+  float calcAz = (float)targetAz;
+  float calcEl = (float)targetEl;
+#if ALLOW_FLIP_OVER
+  static float baseAz = -1;
+  if (passInProgress && passMaxEl > 82.0f && !isSun && !isMoon) {
+      if (currentEl < 45.0f && baseAz < 0) baseAz = calcAz;
+      if (baseAz >= 0) {
+         float azDiff = abs(calcAz - baseAz);
+         if (azDiff > 90.0f && azDiff < 270.0f) {
+            calcAz = fmodf(calcAz + 180.0f, 360.0f);
+            calcEl = 180.0f - calcEl;
+         }
+      }
+  } else {
+      baseAz = -1;
+  }
+  calcEl = constrain(calcEl, 0.0f, 180.0f);
+#else
+  calcEl = constrain(calcEl, 0.0f, 90.0f);
+#endif
+
   // Azimuth shortest-path with cable wrap protection.
   // Instead of always going to the raw 0-360 position, compute the
   // delta from the last raw target to the new raw target and accumulate.
   // This ensures the motor never takes the long way around (350->10 goes
   // +20, not -340) and caps cumulative rotation at AZ_WRAP_LIMIT degrees.
   {
-    float rawAz=fmodf((float)targetAz+360.0f,360.0f);
+    float rawAz=fmodf(calcAz+360.0f,360.0f);
     if(!accumAzInit){accumAzTarget=rawAz;prevRawAz=rawAz;accumAzInit=true;}
     float delta=rawAz-prevRawAz;
     if(delta>180.0f)delta-=360.0f;
@@ -1037,7 +1120,7 @@ void loop(){
     if(accumAzTarget<-AZ_WRAP_LIMIT)accumAzTarget+=360.0f;
     azStepper.moveTo((long)(accumAzTarget*STEPS_PER_DEG));
   }
-  elStepper.moveTo((long)(targetEl*STEPS_PER_DEG));
+  elStepper.moveTo((long)(calcEl*STEPS_PER_DEG));
   azStepper.run();elStepper.run();
   if(elStepper.currentPosition()<0)elStepper.setCurrentPosition(0);
   currentAz=fmodf(azStepper.currentPosition()/STEPS_PER_DEG+3600.0f,360.0f);
