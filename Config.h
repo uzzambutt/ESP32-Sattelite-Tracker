@@ -18,10 +18,20 @@
 
 // ── Button ─────────────────────────────────────────────────────
 #define BTN_PIN     0       // IO0 — BOOT button on most ESP32 devboards
-#define SCREEN_COUNT 5
+#define SCREEN_COUNT 6
 
 // ── Satellite queue ────────────────────────────────────────────
 #define MAX_QUEUED_SATS 8
+
+// ── Azimuth cable wrap protection ──────────────────────────────
+#define AZ_WRAP_LIMIT   450.0f  // max cumulative degrees before preferring opposite direction
+
+// ── Backlash compensation (0 = disabled) ───────────────────────
+#define AZ_BACKLASH_STEPS  0
+#define EL_BACKLASH_STEPS  0
+
+// ── Space weather fetch interval ───────────────────────────────
+#define SPACE_WX_INTERVAL_MS  3600000UL  // Kp index every 1 hour
 
 // ── Pass schedule ──────────────────────────────────────────────
 #define MAX_SCHEDULED_PASSES 48

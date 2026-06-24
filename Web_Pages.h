@@ -68,13 +68,31 @@ canvas{background:radial-gradient(circle,#100a1c 0%,#08060f 100%);border-radius:
 .queue-item{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px dotted #1c2733}
 .queue-item.active{color:var(--acc)}
 .queue-item button{width:auto;padding:4px 10px;margin:0;font-size:.7rem}
+.grade{display:inline-block;padding:1px 6px;font-size:.7rem;font-weight:700;border-radius:2px;font-family:'Share Tech Mono',monospace;margin-left:6px}
+.grade-a{background:#0d3320;color:#3ddc84;border:1px solid #3ddc84}
+.grade-b{background:#2a2000;color:#ffd600;border:1px solid #ffd600}
+.grade-c{background:#2a1400;color:#ff9100;border:1px solid #ff9100}
+.grade-f{background:#2a0010;color:#ff5252;border:1px solid #ff5252}
+.vis-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;flex-shrink:0}
+.raw-tle-area{background:#0c0a16;color:#c8c2e0;border:1px solid #3a2a55;border-radius:4px;width:100%;padding:8px;font-family:'Share Tech Mono',monospace;font-size:.75rem;resize:vertical;min-height:56px;margin-bottom:8px}
+body.night{filter:none!important}
+body.night .panel{background:#0a0000!important;border-color:#330000!important}
+body.night .ph{color:#cc2000!important;border-color:#330000!important}
+body.night .ph::before{color:#ff3300!important}
+body.night .val,.night .vg,.night .sched-sat,.night .sched-el{color:#cc2000!important;text-shadow:0 0 8px #cc200044!important}
+body.night .logo,.night .logo span{color:#cc2000!important}
+body.night canvas{filter:sepia(1) saturate(4) hue-rotate(308deg) brightness(0.65)}
+body.night button{border-color:#550000!important;color:#cc2000!important;background:#1a0000!important}
+body.night button:hover{background:#cc2000!important;color:#000!important}
+body.night #nightBtn{background:#cc2000!important;color:#000000!important;border-color:#cc2000!important}
 </style></head><body>
 <div class="lost" id="connLost">⚠ DOWNLINK LOST — REACQUIRING</div>
 <div class="topbar">
   <div class="logo">ORBITAL<span>OPS</span></div>
-  <div style="display:flex;align-items:center;gap:14px">
-    <span id="weatherBadge" style="font-size:.75rem;color:#7a7493;font-family:'Share Tech Mono',monospace"></span>
-    <div class="clock" id="utcClock">--:--:--</div>
+  <div style="display:flex;align-items:center;gap:10px">
+   <span id="weatherBadge" style="font-size:.75rem;color:#7a7493;font-family:'Share Tech Mono',monospace"></span>
+   <button id="nightBtn" onclick="toggleNightMode()" style="width:auto;padding:5px 12px;margin:0;font-size:.65rem;letter-spacing:2px">NIGHT</button>
+   <div class="clock" id="utcClock">--:--:--</div>
   </div>
 </div>
 <div class="badges">
@@ -136,6 +154,16 @@ canvas{background:radial-gradient(circle,#100a1c 0%,#08060f 100%);border-radius:
 <div style="display:flex;gap:8px">
 <button onclick="pushTLE()" id="btn-push" style="flex:1">2 ▸ UPLOAD TLE</button>
 <button onclick="queueTLE()" id="btn-queue" style="flex:1;border-color:#b9a0dc;color:#b9a0dc">+ QUEUE</button>
+</div>
+<div style="border-top:1px solid #1c2733;margin:12px 0 10px;padding-top:10px">
+<div style="font-size:.65rem;letter-spacing:2px;color:#7a7493;margin-bottom:6px">PASTE RAW TLE (3 LINES)</div>
+<textarea id="raw-tle-input" class="raw-tle-area" rows="3" placeholder="Satellite Name&#10;1 NNNNNC 00000A ...&#10;2 NNNNN ..."></textarea>
+<button onclick="pushRawTLE()" style="border-color:#b9a0dc;color:#b9a0dc">UPLOAD RAW TLE</button>
+</div></div>
+
+<div class="panel" style="margin-bottom:14px"><div class="ph">ORBITAL ELEMENTS</div>
+<div id="elemBody">
+<div style="color:#7a7493;font-size:.8rem">Load a TLE to view elements</div>
 </div></div>
 
 <div class="panel" style="margin-bottom:14px"><div class="ph">SATELLITE QUEUE</div>
@@ -143,17 +171,41 @@ canvas{background:radial-gradient(circle,#100a1c 0%,#08060f 100%);border-radius:
 <button onclick="clearQueue()" style="margin-top:8px;border-color:#ff6b8a;color:#ff6b8a">CLEAR QUEUE</button>
 </div>
 
-<div class="panel"><div class="ph">PASS SCHEDULE (24H)</div>
+<div class="panel"><div class="ph" style="justify-content:space-between">
+<span>PASS SCHEDULE (24H)</span>
+<button onclick="downloadScheduleCSV()" style="width:auto;padding:3px 10px;margin:0;font-size:.65rem">CSV</button>
+</div>
 <button onclick="loadSchedule()" style="margin-bottom:10px">REFRESH SCHEDULE</button>
 <div id="schedBody" style="font-family:'Share Tech Mono',monospace;font-size:.75rem;color:#7a7493;max-height:200px;overflow-y:auto">
 Press REFRESH to compute
+</div>
+<div class="panel" style="margin-top:10px;padding:12px"><div class="ph" style="font-size:.65rem;margin-bottom:8px">PASS ELEVATION PROFILE</div>
+<canvas id="passGraph" width="380" height="110" style="width:100%;border-radius:4px;background:#080614"></canvas>
+<button onclick="loadPassGraph()" style="margin-top:6px;font-size:.7rem">LOAD GRAPH</button>
 </div></div>
+</div>
+</div>
+
+<div class="panel" style="width:100%;max-width:980px;margin-top:14px"><div class="ph">GROUND TRACK</div>
+<div style="position:relative;width:100%;height:220px;border-radius:4px;overflow:hidden;background:#08060e">
+ <div style="position:absolute;inset:0;background:url('https://upload.wikimedia.org/wikipedia/commons/e/ec/World_map_blank_without_borders.svg') center/100% 100% no-repeat;filter:invert(1) opacity(0.15) hue-rotate(180deg)"></div>
+ <canvas id="worldMap" width="700" height="220" style="position:absolute;inset:0;width:100%;height:100%;background:transparent;box-shadow:inset 0 0 50px rgba(120,230,154,.05)"></canvas>
 </div>
 </div>
 
 <div class="panel" style="width:100%;max-width:980px;margin-top:14px"><div class="ph">PASS LOG</div>
 <button onclick="loadPassLog()" style="margin-bottom:10px">REFRESH LOG</button>
 <div id="passLogBody" style="font-family:'Share Tech Mono',monospace;font-size:.8rem;color:#7a7493">NO PASSES RECORDED</div>
+</div>
+
+<div class="panel" style="width:100%;max-width:980px;margin-top:14px"><div class="ph">QSO CONTACT LOG</div>
+<div class="ig" style="margin-bottom:8px">
+ <input type="text" id="qso-call" placeholder="Callsign" style="margin:0;flex:1">
+ <input type="text" id="qso-notes" placeholder="Notes" style="margin:0;flex:2">
+ <button onclick="logQSO()" style="width:auto;flex-shrink:0;padding:11px 14px;margin:0">LOG</button>
+ <button onclick="clearQSOLog()" style="width:auto;flex-shrink:0;padding:11px 10px;margin:0;border-color:#ff6b8a;color:#ff6b8a">CLR</button>
+</div>
+<div id="qsoLogBody" style="font-family:'Share Tech Mono',monospace;font-size:.75rem;color:#7a7493;max-height:160px;overflow-y:auto">No contacts logged.</div>
 </div>
 
 <script>
@@ -207,69 +259,297 @@ async function fetchTelemetry(){
    document.getElementById('imuStatus').innerText='OFFLINE';
   }
   if(d.wind!==undefined) document.getElementById('windSpd').innerText=parseFloat(d.wind).toFixed(1)+' m/s';
-  if(d.wxDesc) document.getElementById('weatherBadge').innerText='☁ '+d.wxDesc+' '+parseFloat(d.wxTemp||0).toFixed(0)+'°C';
+  if(d.wxDesc) document.getElementById('weatherBadge').innerText=d.wxDesc+' '+parseFloat(d.wxTemp||0).toFixed(0)+'C';
   renderWeather(d);
   renderQueue(d.queue||[]);
+  renderOrbitalElements(d);
+  lastSatLat=d.satLat||0;lastSatLon=d.satLon||0;
+  drawWorldMap();
  }catch(e){
   if(++failCount>3){
    document.getElementById('connLost').style.display='block';
    const b=document.getElementById('statusBadge');
-   b.className='bdg err';b.innerText='✕ OFFLINE';
+   b.className='bdg err';b.innerText='X OFFLINE';
   }
  }
 }
 
 function renderWeather(d){
  if(!d.wxValid){document.getElementById('wxBody').innerHTML='<div style="color:#7a7493;font-size:.8rem">No weather data</div>';return;}
- // 16-point compass from bearing (D)
  const COMP=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
  const wdeg=parseFloat(d.wxWindDeg||0);
  const wcomp=COMP[((Math.round(wdeg/22.5))%16+16)%16];
- document.getElementById('wxBody').innerHTML=`
- <div style="color:#cabfe6;margin-bottom:4px;font-size:.9rem">${d.wxCity}</div>
- <div style="color:#7a7493;margin-bottom:8px;font-size:.78rem;letter-spacing:1px;text-transform:uppercase">${d.wxDesc}</div>
- <div class="wx-grid">
-  <div class="wx-stat"><div class="wx-val">${parseFloat(d.wxTemp||0).toFixed(1)}°C</div><div class="wx-lbl">TEMP</div></div>
-  <div class="wx-stat"><div class="wx-val" style="color:var(--pri)">${parseFloat(d.wxFeels||0).toFixed(1)}°C</div><div class="wx-lbl">FEELS</div></div>
-  <div class="wx-stat"><div class="wx-val">${parseFloat(d.wind||0).toFixed(1)}</div><div class="wx-lbl">WIND m/s</div></div>
-  <div class="wx-stat"><div class="wx-val">${wdeg.toFixed(0)}° ${wcomp}</div><div class="wx-lbl">WIND DIR</div></div>
-  <div class="wx-stat"><div class="wx-val">${d.wxHum||'--'}%</div><div class="wx-lbl">HUMIDITY</div></div>
-  <div class="wx-stat"><div class="wx-val" style="color:var(--pri)">${d.wxPressure||'--'}hPa</div><div class="wx-lbl">PRESSURE</div></div>
- </div>`;
+ const kpLevel=d.kpValid?(d.kp<3?'QUIET':d.kp<5?'UNSETTLED':d.kp<7?'STORM':'SEVERE STORM'):'--';
+ const kpColor=d.kpValid?(d.kp<3?'var(--acc)':d.kp<5?'var(--pri)':d.kp<7?'#ff9100':'var(--red)'):'#7a7493';
+ const tleAgeStr=(d.tleAge&&d.tleAge>0)?d.tleAge.toFixed(1)+' d':'--';
+ const tleAgeColor=(d.tleAge&&d.tleAge>14)?'var(--red)':(d.tleAge&&d.tleAge>7)?'#ff9100':'var(--acc)';
+ document.getElementById('wxBody').innerHTML=
+  '<div style="color:#cabfe6;margin-bottom:4px;font-size:.9rem">'+d.wxCity+'</div>'+
+  '<div style="color:#7a7493;margin-bottom:8px;font-size:.78rem;letter-spacing:1px;text-transform:uppercase">'+d.wxDesc+'</div>'+
+  '<div class="wx-grid">'+
+  '<div class="wx-stat"><div class="wx-val">'+parseFloat(d.wxTemp||0).toFixed(1)+'C</div><div class="wx-lbl">TEMP</div></div>'+
+  '<div class="wx-stat"><div class="wx-val" style="color:var(--pri)">'+parseFloat(d.wxFeels||0).toFixed(1)+'C</div><div class="wx-lbl">FEELS</div></div>'+
+  '<div class="wx-stat"><div class="wx-val">'+parseFloat(d.wind||0).toFixed(1)+'</div><div class="wx-lbl">WIND m/s</div></div>'+
+  '<div class="wx-stat"><div class="wx-val">'+wdeg.toFixed(0)+' '+wcomp+'</div><div class="wx-lbl">WIND DIR</div></div>'+
+  '<div class="wx-stat"><div class="wx-val">'+(d.wxHum||'--')+'%</div><div class="wx-lbl">HUMIDITY</div></div>'+
+  '<div class="wx-stat"><div class="wx-val" style="color:var(--pri)">'+(d.wxPressure||'--')+'hPa</div><div class="wx-lbl">PRESSURE</div></div>'+
+  '</div>'+
+  '<div class="row" style="margin-top:10px;border-top:1px solid #1c2733;padding-top:8px">'+
+  '<span class="k">Kp INDEX</span>'+
+  '<span style="font-family:monospace;color:'+kpColor+'">'+(d.kpValid?d.kp.toFixed(1):'--')+' ('+kpLevel+')</span></div>'+
+  '<div class="row" style="border:none"><span class="k">TLE AGE</span>'+
+  '<span style="font-family:monospace;color:'+tleAgeColor+'">'+tleAgeStr+((d.tleAge&&d.tleAge>7)?' (STALE)':'')+'</span></div>';
+}
+
+
+let lastSchedule=[];
+let lastSatLat=0,lastSatLon=0;
+
+function passGrade(el){
+ if(el>=60) return '<span class="grade grade-a">A</span>';
+ if(el>=30) return '<span class="grade grade-b">B</span>';
+ if(el>=10) return '<span class="grade grade-c">C</span>';
+ return '<span class="grade grade-f">F</span>';
+}
+
+function toggleNightMode(){
+ document.body.classList.toggle('night');
+}
+
+function maidenheadToLatLon(g){
+ if(!g||g.length<2)return{lat:0,lon:0};
+ g=g.toUpperCase();
+ let lon=(g.charCodeAt(0)-65)*20-180;
+ let lat=(g.charCodeAt(1)-65)*10-90;
+ if(g.length>=4){lon+=(parseInt(g[2]))*2;lat+=parseInt(g[3]);}
+ if(g.length>=6){lon+=((g.charCodeAt(4)-65)*5)/60+2.5/60;lat+=((g.charCodeAt(5)-65)*2.5)/60+1.25/60;}
+ lon+=1;lat+=0.5;
+ return{lat,lon};
+}
+
+function drawWorldMap(){
+ const c=document.getElementById('worldMap');
+ if(!c)return;
+ const W=c.width,H=c.height;
+ const ctx=c.getContext('2d');
+ ctx.clearRect(0,0,W,H);
+ // Lat/lon grid
+ function proj(lat,lon){return{x:Math.round((lon+180)/360*W),y:Math.round((90-lat)/180*H)};}
+ ctx.strokeStyle='rgba(26,21,48,0.5)';ctx.lineWidth=0.5;
+ for(let lon=-180;lon<=180;lon+=30){const p1=proj(-90,lon),p2=proj(90,lon);ctx.beginPath();ctx.moveTo(p1.x,p1.y);ctx.lineTo(p2.x,p2.y);ctx.stroke();}
+ for(let lat=-60;lat<=60;lat+=30){
+ ctx.strokeStyle=(lat===0)?'#2a2060':'#1a1530';
+ const p1=proj(lat,-180),p2=proj(lat,180);ctx.beginPath();ctx.moveTo(p1.x,p1.y);ctx.lineTo(p2.x,p2.y);ctx.stroke();
+ }
+ // Labels
+ ctx.fillStyle='#2a2060';ctx.font='9px monospace';
+ ctx.fillText('EQ',2,proj(0,0).y-2);
+ ctx.fillText('N',2,proj(60,-180).y);ctx.fillText('S',2,proj(-60,-180).y);
+ // Footprint circle
+ if(satFootprintRadius>0&&lastSatLat!==0){
+ const fp=proj(lastSatLat,lastSatLon);
+ const fpPxRadius=(satFootprintRadius/6371)*W*(180/360)*2;
+ ctx.beginPath();ctx.arc(fp.x,fp.y,fpPxRadius,0,2*Math.PI);
+ ctx.strokeStyle='rgba(120,230,154,0.15)';ctx.lineWidth=1;ctx.stroke();
+ ctx.fillStyle='rgba(120,230,154,0.04)';ctx.fill();
+ }
+ // Observer position
+ const obs=maidenheadToLatLon(document.getElementById('grid-input').placeholder||'MM71');
+ const op=proj(obs.lat,obs.lon);
+ ctx.beginPath();
+ ctx.moveTo(op.x,op.y-6);ctx.lineTo(op.x+5,op.y+4);ctx.lineTo(op.x-5,op.y+4);ctx.closePath();
+ ctx.fillStyle='#b9a0dc';ctx.fill();
+ // Satellite dot
+ if(lastSatLat!==0||lastSatLon!==0){
+ const sp=proj(lastSatLat,lastSatLon);
+ const grad=ctx.createRadialGradient(sp.x,sp.y,0,sp.x,sp.y,8);
+ grad.addColorStop(0,'rgba(120,230,154,.9)');grad.addColorStop(1,'rgba(120,230,154,0)');
+ ctx.beginPath();ctx.arc(sp.x,sp.y,8,0,2*Math.PI);ctx.fillStyle=grad;ctx.fill();
+ ctx.beginPath();ctx.arc(sp.x,sp.y,3,0,2*Math.PI);ctx.fillStyle='#78e69a';ctx.fill();
+ ctx.fillStyle='#78e69a';ctx.font='bold 9px monospace';ctx.fillText('SAT',sp.x+6,sp.y-4);
+ }
+}
+
+async function loadPassGraph(){
+ try{
+  const r=await fetch('/api/path');
+  const pts=await r.json();
+  if(!pts||!pts.length)return;
+  const c=document.getElementById('passGraph');
+  const W=c.width,H=c.height;
+  const ctx=c.getContext('2d');
+  const PAD={l:28,r:10,t:8,b:22};
+  const gW=W-PAD.l-PAD.r,gH=H-PAD.t-PAD.b;
+  ctx.fillStyle='#080614';ctx.fillRect(0,0,W,H);
+  // Grid lines
+  ctx.strokeStyle='#1a1530';ctx.lineWidth=0.5;ctx.setLineDash([2,4]);
+  [30,60].forEach(el=>{
+   const y=PAD.t+gH*(1-el/90);
+   ctx.beginPath();ctx.moveTo(PAD.l,y);ctx.lineTo(PAD.l+gW,y);ctx.stroke();
+   ctx.fillStyle='#3a3460';ctx.font='8px monospace';ctx.fillText(el+'',2,y+3);
+  });
+  ctx.setLineDash([]);
+  // Axes
+  ctx.strokeStyle='#3a2a55';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(PAD.l,PAD.t);ctx.lineTo(PAD.l,PAD.t+gH);ctx.lineTo(PAD.l+gW,PAD.t+gH);ctx.stroke();
+  // Fill + line
+  const grad=ctx.createLinearGradient(0,PAD.t,0,PAD.t+gH);
+  grad.addColorStop(0,'rgba(120,230,154,0.35)');grad.addColorStop(1,'rgba(120,230,154,0.03)');
+  ctx.beginPath();
+  pts.forEach((p,i)=>{
+   const x=PAD.l+(i/(pts.length-1||1))*gW;
+   const y=PAD.t+gH*(1-Math.min(p.el,90)/90);
+   i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+  });
+  ctx.lineTo(PAD.l+gW,PAD.t+gH);ctx.lineTo(PAD.l,PAD.t+gH);
+  ctx.closePath();ctx.fillStyle=grad;ctx.fill();
+  ctx.beginPath();
+  pts.forEach((p,i)=>{
+   const x=PAD.l+(i/(pts.length-1||1))*gW;
+   const y=PAD.t+gH*(1-Math.min(p.el,90)/90);
+   i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+  });
+  ctx.strokeStyle='#78e69a';ctx.lineWidth=1.5;ctx.stroke();
+  // Peak label
+  const maxEl=Math.max(...pts.map(p=>p.el));
+  const maxIdx=pts.findIndex(p=>p.el===maxEl);
+  const px=PAD.l+(maxIdx/(pts.length-1||1))*gW;
+  const py=PAD.t+gH*(1-maxEl/90);
+  ctx.fillStyle='#78e69a';ctx.font='bold 9px monospace';
+  ctx.fillText(maxEl.toFixed(1),px-10,py-4);
+  // X axis labels
+  ctx.fillStyle='#7a7493';ctx.font='8px monospace';
+  [0,0.25,0.5,0.75,1].forEach(f=>{
+   const mins=((pts.length-1)*f*30/60).toFixed(0);
+   const x=PAD.l+f*gW;
+   ctx.fillText(mins+'m',x-6,H-5);
+  });
+ }catch(e){console.log('passGraph err',e);}
+}
+
+function renderOrbitalElements(d){
+ const el=d.tleElem;
+ const b=document.getElementById('elemBody');
+ if(!b)return;
+ if(!el){b.innerHTML='<div style="color:#7a7493;font-size:.8rem">Load a TLE to view elements</div>';return;}
+ const age=d.tleAge||0;
+ const ageColor=age>14?'var(--red)':age>7?'#ff9100':'var(--acc)';
+ const ageLabel=age>7?' (STALE)':'';
+ const orb=el.perigeeAlt>35000?'GEO':el.perigeeAlt>2000?'MEO':el.perigeeAlt>200?'LEO':'SPL';
+ b.innerHTML=
+  '<div class="row"><span class="k">NORAD</span><span class="v vg">'+el.catalogNum+'</span></div>'+
+  '<div class="row"><span class="k">INCLINATION</span><span class="v">'+parseFloat(el.inclination).toFixed(3)+'</span></div>'+
+  '<div class="row"><span class="k">RAAN</span><span class="v">'+parseFloat(el.raan).toFixed(2)+'</span></div>'+
+  '<div class="row"><span class="k">ECCENTRICITY</span><span class="v">'+parseFloat(el.eccentricity).toFixed(6)+'</span></div>'+
+  '<div class="row"><span class="k">PERIGEE</span><span class="v">'+Math.round(el.perigeeAlt)+' km</span></div>'+
+  '<div class="row"><span class="k">APOGEE</span><span class="v">'+Math.round(el.apogeeAlt)+' km</span></div>'+
+  '<div class="row"><span class="k">PERIOD</span><span class="v vg">'+parseFloat(el.period).toFixed(1)+' min</span></div>'+
+  '<div class="row"><span class="k">ORBIT TYPE</span><span class="v va">'+orb+'</span></div>'+
+  '<div class="row" style="border:none"><span class="k">TLE AGE</span><span style="font-family:monospace;color:'+ageColor+'">'+age.toFixed(1)+'d'+ageLabel+'</span></div>';
 }
 
 function renderQueue(q){
+ const now=Date.now()/1000;
  const el=document.getElementById('queueBody');
  if(!q||!q.length){el.innerHTML='<div style="color:#7a7493;font-size:.8rem">Queue empty</div>';return;}
- el.innerHTML=q.map((s,i)=>`
- <div class="queue-item ${s.active?'active':''}" id="qitem-${i}">
-  <span style="font-family:'Share Tech Mono',monospace;font-size:.8rem">${s.active?'▶ ':''} ${s.name}</span>
-  <button onclick="removeFromQueue(${i})" style="border-color:#ff6b8a;color:#ff6b8a">✕</button>
- </div>`).join('');
+ el.innerHTML=q.map((s,i)=>{
+  let dotColor='#3a3460';
+  const pass=lastSchedule.find(p=>p.sat===s.name);
+  if(pass){
+   if(now>=pass.aos&&now<=pass.los)dotColor='#78e69a';
+   else if(pass.aos-now<600)dotColor='#ffd600';
+  }
+  return '<div class="queue-item'+(s.active?' active':'')+'">'+
+  '<span style="display:flex;align-items:center"><span class="vis-dot" style="background:'+dotColor+'" title="Visibility status"></span>'+s.name+'</span>'+
+  '<button onclick="removeFromQueue('+i+')">REMOVE</button></div>';
+ }).join('');
 }
 
 async function loadSchedule(){
- document.getElementById('schedBody').innerText='Computing...';
  try{
   await fetch('/api/schedule/refresh',{method:'POST'});
-  let d=null, tries=0;
-  do{
-   await new Promise(r=>setTimeout(r,500));
-   const r=await fetch('/api/schedule'); d=await r.json();
-   if(d.length) break;
-  }while(++tries<20);   // up to 10s for Core0 to finish all queued sats
-  if(!d||!d.length){document.getElementById('schedBody').innerText='No passes in next 24h';return;}
-  document.getElementById('schedBody').innerHTML=d.map(p=>{
-   const aos=new Date(p.aos*1000);
-   const t=aos.toISOString().substr(11,5)+' UTC';
-   return`<div class="sched-row">
-    <span class="sched-sat">${p.sat}</span>
-    <span class="sched-time">${t}</span>
-    <span class="sched-el">↑${parseFloat(p.maxEl).toFixed(1)}°</span>
-   </div>`;
+  await new Promise(r=>setTimeout(r,2000));
+  const r=await fetch('/api/schedule');
+  const data=await r.json();
+  lastSchedule=data||[];
+  if(!lastSchedule.length){document.getElementById('schedBody').innerHTML='<span style="color:#7a7493">No passes in next 24h</span>';return;}
+  document.getElementById('schedBody').innerHTML=lastSchedule.map(p=>{
+   const aosD=new Date(p.aos*1000);
+   const losD=new Date(p.los*1000);
+   const fmt=d=>d.toUTCString().substr(17,5);
+   const g=passGrade(p.maxEl);
+   return '<div class="sched-row"><span class="sched-sat">'+p.sat+'</span>'+
+   '<span class="sched-time">'+fmt(aosD)+'-'+fmt(losD)+'</span>'+
+   '<span class="sched-el">'+p.maxEl.toFixed(1)+''+g+'</span></div>';
   }).join('');
- }catch(e){document.getElementById('schedBody').innerText='LOAD FAILED';}
+ }catch(e){document.getElementById('schedBody').innerHTML='Error';}
 }
+
+function downloadScheduleCSV(){
+ if(!lastSchedule.length){alert('Refresh schedule first.');return;}
+ let csv='Satellite,AOS_UTC,LOS_UTC,MaxEl_deg,AOS_Az_deg\n';
+ lastSchedule.forEach(p=>{
+  const ao=new Date(p.aos*1000).toISOString();
+  const lo=new Date(p.los*1000).toISOString();
+  csv+=p.sat+','+ao+','+lo+','+p.maxEl.toFixed(1)+','+(p.aosAz||0).toFixed(1)+'\n';
+ });
+ const a=document.createElement('a');
+ a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+ a.download='pass_schedule.csv';a.click();
+}
+
+async function pushRawTLE(){
+ const raw=document.getElementById('raw-tle-input').value;
+ const lines=raw.split('\n').map(s=>s.trim()).filter(s=>s);
+ if(lines.length<3){alert('Need 3 lines: name, TLE line 1, TLE line 2');return;}
+ if(!lines[1].startsWith('1 ')||!lines[2].startsWith('2 ')){alert('Lines 2 and 3 must start with "1 " and "2 "');return;}
+ try{
+  const r=await fetch('/api/tle',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({name:lines[0],line1:lines[1],line2:lines[2]})});
+  const j=await r.json();
+  if(j.status==='ok'){alert('TLE uploaded: '+lines[0]);document.getElementById('raw-tle-input').value='';}
+  else alert('Upload failed.');
+ }catch(e){alert('Error: '+e);}
+}
+
+let _qsoSat='';
+async function fetchTelForQSO(){try{const r=await fetch('/api/status',{cache:'no-store'});const d=await r.json();_qsoSat=d.sat||'';}catch(e){}}
+fetchTelForQSO();
+
+function logQSO(){
+ const call=document.getElementById('qso-call').value.trim().toUpperCase();
+ if(!call){alert('Enter a callsign.');return;}
+ const notes=document.getElementById('qso-notes').value.trim();
+ const entry={call,notes,sat:_qsoSat,time:new Date().toISOString()};
+ const stored=JSON.parse(localStorage.getItem('sattracker_qso')||'[]');
+ stored.unshift(entry);
+ localStorage.setItem('sattracker_qso',JSON.stringify(stored.slice(0,200)));
+ document.getElementById('qso-call').value='';
+ document.getElementById('qso-notes').value='';
+ renderQSOLog();
+}
+
+function clearQSOLog(){
+ if(!confirm('Clear all QSO contacts?'))return;
+ localStorage.removeItem('sattracker_qso');
+ renderQSOLog();
+}
+
+function renderQSOLog(){
+ const data=JSON.parse(localStorage.getItem('sattracker_qso')||'[]');
+ const el=document.getElementById('qsoLogBody');
+ if(!data.length){el.innerHTML='No contacts logged.';return;}
+ el.innerHTML=data.slice(0,20).map(e=>{
+  const dt=new Date(e.time).toUTCString().substr(4,20);
+  return '<div style="border-bottom:1px dotted #1c2733;padding:3px 0">'+
+  '<span style="color:var(--acc)">'+e.call+'</span> via '+
+  '<span style="color:var(--pri)">'+e.sat+'</span> '+
+  '<span style="color:#7a7493">['+dt+']</span>'+
+  (e.notes?' <span style="color:#9a93b0">'+e.notes+'</span>':'')+
+  '</div>';
+ }).join('');
+}
+
 
 async function fetchPath(){try{const r=await fetch('/api/path');if(r.ok)satPath=await r.json();}catch(e){}}
 
@@ -497,6 +777,8 @@ function animateRadar(){
 }
 
 setInterval(fetchTelemetry,500);
+renderQSOLog();
+drawWorldMap();
 setInterval(fetchPath,60000);
 setTimeout(fetchPath,2000);
 setTimeout(loadSchedule,4000);

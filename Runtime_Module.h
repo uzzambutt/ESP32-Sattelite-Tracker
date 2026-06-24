@@ -17,11 +17,31 @@ void runSGP4(){
   unsigned long now=timeClient.getEpochTime();if(now<1000000000UL)return;
   sat.findsat(now);
   unsigned long cm=millis();
-  if(lastSatDist>0&&cm>lastDopplerTime){double dt=(cm-lastDopplerTime)/1000.0;if(dt>0){double rr=(sat.satDist-lastSatDist)/dt;dopplerFreq=(float)(145800000.0*(-rr/299792.458));}}
+  if(lastSatDist>0&&cm>lastDopplerTime){
+    double dt=(cm-lastDopplerTime)/1000.0;
+    if(dt>0){
+      double rr=(sat.satDist-lastSatDist)/dt;
+      dopplerFreq=(float)(145800000.0*(-rr/299792.458));
+      doppler435  =(float)(435800000.0*(-rr/299792.458));
+      doppler1268 =(float)(1268000000.0*(-rr/299792.458));
+    }
+  }
   lastSatDist=sat.satDist;lastDopplerTime=cm;satDistance=(float)sat.satDist;
-  targetAz=(float)sat.satAz;targetEl=(sat.satEl<0)?0:(float)sat.satEl;
-  satAltitude  =(float)sat.satAlt;   // (A4) publish true altitude for the footprint screen
-  satFootprintKm=computeFootprintKm(sat.satAlt);   // (A4) true altitude, not slant range
+  targetAz=(float)sat.satAz;
+  float rawEl=(sat.satEl<0)?0:(float)sat.satEl;
+  // Atmospheric refraction correction (Bennett 1982).
+  // Lifts the apparent elevation for low-angle passes so the antenna
+  // points at the refracted position, not the geometric one.
+  if(rawEl>0.5f&&rawEl<85.0f){
+    float refr=1.02f/(60.0f*tanf((rawEl+10.3f/(rawEl+5.11f))*PI/180.0f));
+    rawEl+=refr;
+    if(rawEl>90.0f)rawEl=90.0f;
+  }
+  targetEl=rawEl;
+  satAltitude  =(float)sat.satAlt;
+  satFootprintKm=computeFootprintKm(sat.satAlt);
+  satLat=(float)sat.satLat;   // sub-satellite geodetic latitude (degrees)
+  satLon=(float)sat.satLon;   // sub-satellite longitude (degrees)
   if(isGeoSat)nextMaxEl=(float)sat.satEl;
   if(isMoving||targetEl>0)lastActiveMs=millis();
   if(sat.satEl>=0){
@@ -29,7 +49,6 @@ void runSGP4(){
     else if((float)sat.satEl>passMaxEl)passMaxEl=(float)sat.satEl;
   } else if(passInProgress){
     passInProgress=false;if(!isGeoSat)logPass();
-    // Auto-advance queue after pass
     if(queueCount>1){Serial.println("[QUEUE] Pass ended, checking next...");advanceQueue();}
   }
 }

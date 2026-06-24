@@ -179,8 +179,13 @@ String maidenhead="MM71dl";
 volatile bool   ntpSynced    =false;
 volatile double lastSatDist  =0;
 volatile float  dopplerFreq  =0,satDistance=0;
-volatile float  satFootprintKm=0;  // current satellite footprint radius km
-volatile float  satAltitude  =0;  // (A4) true orbital altitude km, for footprint screen
+volatile float  doppler435   =0,doppler1268=0;  // multi-band Doppler (Hz)
+volatile float  satFootprintKm=0;
+volatile float  satAltitude  =0;
+volatile float  satLat       =0,satLon=0;        // sub-satellite point
+float           accumAzTarget=0;                 // cable-wrap-safe accumulated Az
+bool            accumAzInit  =false;
+float           prevRawAz    =0;
 unsigned long   lastDopplerTime=0,lastSGP4Update=0;
 volatile time_t nextAosTime  =0,nextLosTime=0;
 volatile float  nextMaxEl    =0;
@@ -211,6 +216,22 @@ int   prev_alX[2],prev_alY[2];
 int   terminalY=30;
 TaskHandle_t Core0Task;
 const int RCX=120,RCY=228,RR=55;
+
+// ---- Space weather ----
+struct SpaceWeather{ float kp=0; bool valid=false; time_t fetchedAt=0; };
+SpaceWeather spaceWx;
+unsigned long lastSpaceWxFetch=0;
+
+// ---- TLE orbital elements ----
+struct TLEElements{
+  int   catalogNum=0;
+  float inclination=0,raan=0,eccentricity=0;
+  float argPerigee=0,meanMotion=0,period=0;
+  float semiMajor=0,perigeeAlt=0,apogeeAlt=0;
+  float ageDays=0;
+  bool  valid=false;
+};
+TLEElements tleElem;
 
 inline int clampX(int x){return x<RADAR_SAFE_LEFT?RADAR_SAFE_LEFT:x>RADAR_SAFE_RIGHT?RADAR_SAFE_RIGHT:x;}
 inline int clampY(int y){return y<RADAR_SAFE_TOP?RADAR_SAFE_TOP:y>RADAR_SAFE_BOT?RADAR_SAFE_BOT:y;}
@@ -355,6 +376,78 @@ static void copyAscii(char *dst,const char *src,size_t n){
     }
   }
   dst[i]='\0';   // always terminate
+}
+
+// Parse orbital elements from the globally loaded TLE lines.
+// Called whenever a new TLE is loaded. Re-compute on demand.
+void parseTLEElements(){
+  if(strlen(tleLine1)<68||strlen(tleLine2)<68){tleElem.valid=false;return;}
+  char buf[14];
+  // Catalog number (L1 chars 2-6)
+  strncpy(buf,tleLine1+2,5);buf[5]='\0';tleElem.catalogNum=atoi(buf);
+  // Epoch: YYDDD.DDDDDDDD (L1 chars 18-31)
+  int yy=(tleLine1[18]-'0')*10+(tleLine1[19]-'0');
+  float epochYear=(yy>=57)?1900.0f+yy:2000.0f+yy;
+  strncpy(buf,tleLine1+20,12);buf[12]='\0';
+  float epochDay=atof(buf);
+  float epochUnix=(epochYear-1970.0f)*365.25f*86400.0f+(epochDay-1.0f)*86400.0f;
+  float nowUnix=(float)timeClient.getEpochTime();
+  tleElem.ageDays=(nowUnix-epochUnix)/86400.0f;
+  // Inclination (L2 chars 8-15)
+  strncpy(buf,tleLine2+8,8);buf[8]='\0';tleElem.inclination=atof(buf);
+  // RAAN (L2 chars 17-24)
+  strncpy(buf,tleLine2+17,8);buf[8]='\0';tleElem.raan=atof(buf);
+  // Eccentricity (L2 chars 26-32, implied decimal point)
+  strncpy(buf,tleLine2+26,7);buf[7]='\0';tleElem.eccentricity=atof(buf)*1e-7f;
+  // Arg of perigee (L2 chars 34-41)
+  strncpy(buf,tleLine2+34,8);buf[8]='\0';tleElem.argPerigee=atof(buf);
+  // Mean motion rev/day (L2 chars 52-62)
+  strncpy(buf,tleLine2+52,11);buf[11]='\0';tleElem.meanMotion=atof(buf);
+  // Derived: period, semi-major axis, perigee/apogee altitudes
+  if(tleElem.meanMotion>0){
+    tleElem.period=1440.0f/tleElem.meanMotion;           // minutes
+    float nRad=tleElem.meanMotion*2.0f*PI/86400.0f;      // rad/s
+    float mu=398600.4418f;                               // km^3/s^2
+    float a=powf(mu/(nRad*nRad),1.0f/3.0f);             // km
+    tleElem.semiMajor=a;
+    float e=tleElem.eccentricity;
+    const float Re=6371.0f;
+    tleElem.perigeeAlt=a*(1.0f-e)-Re;
+    tleElem.apogeeAlt =a*(1.0f+e)-Re;
+  }
+  tleElem.valid=true;
+  Serial.printf("[TLE] Parsed: NORAD %d  incl %.2f  per %.1fmin  age %.1fd\n",
+    tleElem.catalogNum,tleElem.inclination,tleElem.period,tleElem.ageDays);
+}
+
+// Fetch current Kp geomagnetic index from NOAA Space Weather.
+// Response is a JSON array-of-arrays; we just want the last row's second element.
+void fetchSpaceWeather(){
+  if(isAPMode||!ntpSynced)return;
+  HTTPClient http;
+  http.begin("https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json");
+  http.setTimeout(8000);
+  int code=http.GET();
+  if(code==200){
+    String body=http.getString();
+    // Find last occurrence of '"Kp":'
+    int last=body.lastIndexOf("\"Kp\":");
+    if(last>0){
+      int end=body.indexOf(',',last);
+      if(end<0) end=body.indexOf('}',last);
+      if(end>0){
+        String kpStr=body.substring(last+5,end);
+        float kp=kpStr.toFloat();
+        if(kp>=0&&kp<=9){
+          spaceWx.kp=kp;
+          spaceWx.valid=true;
+          spaceWx.fetchedAt=timeClient.getEpochTime();
+          Serial.printf("[SPACE-WX] Kp=%.2f\n",kp);
+        }
+      }
+    }
+  } else { Serial.printf("[SPACE-WX] HTTP %d\n",code); }
+  http.end();
 }
 
 void fetchWeather(){
@@ -527,20 +620,37 @@ void resetTftCache(){
 }
 
 String buildTelemetryJson(){
-  // BUG FIX (A1): 768 was too small â€” a full 8-sat queue + weather +
-  // 24-char sat name overflowed it, corrupting the JSON and freezing the
-  // web UI (await r.json() throws â†’ queue list never updates/clears).
-  StaticJsonDocument<1792> doc;
+  StaticJsonDocument<2560> doc;
   doc["tAz"]=(float)targetAz;doc["tEl"]=(float)targetEl;
   doc["cAz"]=(float)currentAz;doc["cEl"]=(float)currentEl;
   doc["isMoving"]=isMoving;doc["rssi"]=isAPMode?0:WiFi.RSSI();
   doc["freeHeap"]=ESP.getFreeHeap()/1024;doc["uptime"]=millis()/1000;
   doc["mode"]=onboardMode?1:0;doc["sat"]=satName;doc["grid"]=maidenhead;
-  doc["doppler"]=(float)dopplerFreq;doc["dist"]=(float)satDistance;
+  doc["doppler"]=(float)dopplerFreq;
+  doc["doppler435"]=(float)doppler435;
+  doc["doppler1268"]=(float)doppler1268;
+  doc["dist"]=(float)satDistance;
+  doc["satLat"]=(float)satLat;doc["satLon"]=(float)satLon;
   doc["geo"]=isGeoSat;doc["parked"]=parked;
   doc["imuPitch"]=(float)imuPitch;doc["imuRoll"]=(float)imuRoll;doc["imuOK"]=imuOK;
   doc["footprintR"]=(float)satFootprintKm;
-  doc["wxCityOverride"]=weatherCityName;   // currently configured city (empty = lat/lon mode)
+  doc["wxCityOverride"]=weatherCityName;
+  // Space weather
+  doc["kpValid"]=spaceWx.valid;
+  if(spaceWx.valid) doc["kp"]=spaceWx.kp;
+  // TLE age
+  doc["tleAge"]=tleElem.valid?tleElem.ageDays:0.0f;
+  // Orbital elements sub-object
+  if(tleElem.valid){
+    JsonObject el=doc.createNestedObject("tleElem");
+    el["catalogNum"]=tleElem.catalogNum;
+    el["inclination"]=tleElem.inclination;
+    el["raan"]=tleElem.raan;
+    el["eccentricity"]=tleElem.eccentricity;
+    el["perigeeAlt"]=tleElem.perigeeAlt;
+    el["apogeeAlt"]=tleElem.apogeeAlt;
+    el["period"]=tleElem.period;
+  }
   // Weather
   doc["wxValid"]=weather.valid;
   if(weather.valid){
@@ -743,6 +853,8 @@ void Core0TaskCode(void *pvParameters){
 
     // Weather fetch
     if(millis()-lastWeather>WEATHER_INTERVAL_MS&&!isAPMode){fetchWeather();lastWeather=millis();}
+    // Space weather (Kp index) - every hour
+    if((millis()-lastSpaceWxFetch>SPACE_WX_INTERVAL_MS||lastSpaceWxFetch==0)&&!isAPMode){fetchSpaceWeather();lastSpaceWxFetch=millis();}
 
     // Schedule compute: run in a dedicated task so Core0 (TFT / WiFi) never freezes.
     // We only spawn the task when not already running (schedTaskRunning guard).
@@ -764,6 +876,7 @@ void Core0TaskCode(void *pvParameters){
           case 2:tftDrawDriftGraph();break;
           case 3:tftDrawFootprintScreen();break;
           case 4:tftDrawWeatherScreen();break;
+          case 5:tftDrawOrbitalScreen();break;
         }
       }
       if(currentScreen==0){tftUpdateDynamic();tftRadarUpdate();}
@@ -836,6 +949,7 @@ void setup(){
         sat.init(satName,tleLine1,tleLine2);isGeoSat=tleIsGeo();tleLoaded=true;
         // Pre-populate queue with saved satellite
         strncpy(satQueue[0].name,satName,24);strncpy(satQueue[0].line1,tleLine1,69);strncpy(satQueue[0].line2,tleLine2,69);satQueue[0].valid=true;queueCount=1;
+        parseTLEElements(); // Parse orbital elements immediately on boot
         printBootLine("TLE loaded: "+String(satName),0);
       }
     }
@@ -905,12 +1019,28 @@ void loop(){
   }
 
   targetEl=constrain((float)targetEl,0.0f,90.0f);
-  targetAz=fmodf((float)targetAz+360.0f,360.0f);
-  azStepper.moveTo((long)(targetAz*STEPS_PER_DEG));
+  // Azimuth shortest-path with cable wrap protection.
+  // Instead of always going to the raw 0-360 position, compute the
+  // delta from the last raw target to the new raw target and accumulate.
+  // This ensures the motor never takes the long way around (350->10 goes
+  // +20, not -340) and caps cumulative rotation at AZ_WRAP_LIMIT degrees.
+  {
+    float rawAz=fmodf((float)targetAz+360.0f,360.0f);
+    if(!accumAzInit){accumAzTarget=rawAz;prevRawAz=rawAz;accumAzInit=true;}
+    float delta=rawAz-prevRawAz;
+    if(delta>180.0f)delta-=360.0f;
+    if(delta<-180.0f)delta+=360.0f;
+    prevRawAz=rawAz;
+    accumAzTarget+=delta;
+    // Cable wrap: if accumulated rotation exceeds limit, prefer the other direction
+    if(accumAzTarget>AZ_WRAP_LIMIT)accumAzTarget-=360.0f;
+    if(accumAzTarget<-AZ_WRAP_LIMIT)accumAzTarget+=360.0f;
+    azStepper.moveTo((long)(accumAzTarget*STEPS_PER_DEG));
+  }
   elStepper.moveTo((long)(targetEl*STEPS_PER_DEG));
   azStepper.run();elStepper.run();
   if(elStepper.currentPosition()<0)elStepper.setCurrentPosition(0);
-  currentAz=azStepper.currentPosition()/STEPS_PER_DEG;
+  currentAz=fmodf(azStepper.currentPosition()/STEPS_PER_DEG+3600.0f,360.0f);
   currentEl=elStepper.currentPosition()/STEPS_PER_DEG;
   if(currentEl<0)currentEl=0;
   isMoving=azStepper.isRunning()||elStepper.isRunning();

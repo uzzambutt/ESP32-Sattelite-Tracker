@@ -432,6 +432,70 @@ void tftDrawWeatherScreen(){
   tft.setTextColor(C_PRIMARY);tft.setCursor(6,307);tft.print("BTN: NEXT SCREEN");
 }
 
+// ================= TFT SCREEN 5: ORBITAL ELEMENTS =================
+void tftDrawOrbitalScreen(){
+  tft.fillScreen(C_BLACK);
+  tft.fillRect(0,0,240,16,C_HDRBG);tft.fillRect(0,16,240,2,C_PRIMARY);
+  tft.setTextColor(C_PRIMARY);tft.setTextSize(1);
+  tft.setCursor(6,4);tft.print("ORBITAL ELEMENTS  [5/6]");
+
+  if(!tleElem.valid){
+    tft.setTextColor(C_MGRAY);tft.setCursor(6,30);tft.print("NO TLE LOADED");
+    tft.fillRect(0,300,240,20,C_HDRBG);tft.fillRect(0,298,240,2,C_PRIMARY);
+    tft.setTextColor(C_PRIMARY);tft.setCursor(6,307);tft.print("BTN: NEXT SCREEN");
+    return;
+  }
+
+  char buf[40];
+  // Satellite name + NORAD ID
+  tft.setTextColor(C_WHITE);tft.setTextSize(1);
+  tft.setCursor(4,22);
+  snprintf(buf,sizeof(buf),"%-20s",satName);tft.print(buf);
+  tft.setTextColor(C_MGRAY);tft.setCursor(4,33);
+  snprintf(buf,sizeof(buf),"NORAD: %d",tleElem.catalogNum);tft.print(buf);
+
+  // Divider
+  tft.drawFastHLine(4,44,232,C_DGRAY);
+
+  // Elements table
+  auto row=[&](int y,const char* label,const char* val,uint16_t vc=C_NEON){
+    tft.setTextColor(C_MGRAY);tft.setCursor(4,y);tft.print(label);
+    tft.setTextColor(vc);tft.setCursor(110,y);tft.print(val);
+  };
+
+  snprintf(buf,sizeof(buf),"%.3f deg",tleElem.inclination); row(52,"INCLINATION",buf);
+  snprintf(buf,sizeof(buf),"%.2f deg",tleElem.raan);         row(63,"RAAN",buf);
+  snprintf(buf,sizeof(buf),"%.6f",tleElem.eccentricity);    row(74,"ECCENTRICITY",buf);
+  snprintf(buf,sizeof(buf),"%.0f km",tleElem.perigeeAlt);   row(85,"PERIGEE ALT",buf);
+  snprintf(buf,sizeof(buf),"%.0f km",tleElem.apogeeAlt);    row(96,"APOGEE ALT",buf);
+  snprintf(buf,sizeof(buf),"%.2f min",tleElem.period);      row(107,"PERIOD",buf);
+  snprintf(buf,sizeof(buf),"%.4f rev/day",tleElem.meanMotion);row(118,"MEAN MOTION",buf);
+
+  // Divider
+  tft.drawFastHLine(4,131,232,C_DGRAY);
+
+  // TLE age
+  float age=tleElem.ageDays;
+  uint16_t ageColor=(age>14)?C_RED:(age>7)?C_ORANGE:C_NEON;
+  snprintf(buf,sizeof(buf),"%.1f DAYS%s",age,age>7?" (STALE)":"");
+  row(138,"TLE AGE",buf,ageColor);
+
+  // Orbit type
+  bool isLEO=(tleElem.perigeeAlt<2000&&tleElem.perigeeAlt>200);
+  bool isMEO=(tleElem.perigeeAlt>=2000&&tleElem.perigeeAlt<35000);
+  bool isGEO_=(tleElem.perigeeAlt>=35000);
+  const char* orbitType=isGEO_?"GEO":isMEO?"MEO":isLEO?"LEO":"SPECIAL";
+  snprintf(buf,sizeof(buf),"%s",orbitType);
+  row(149,"ORBIT TYPE",buf,C_PRIMARY);
+
+  // Semi-major axis
+  snprintf(buf,sizeof(buf),"%.0f km",tleElem.semiMajor);
+  row(160,"SEMI-MAJOR A",buf);
+
+  tft.fillRect(0,300,240,20,C_HDRBG);tft.fillRect(0,298,240,2,C_PRIMARY);
+  tft.setTextColor(C_PRIMARY);tft.setCursor(6,307);tft.print("BTN: NEXT SCREEN");
+}
+
 // ================= DYNAMIC HUD (screen 0) =================
 void tftUpdateDynamic(){
   if(spiLock||isAPMode) return;
