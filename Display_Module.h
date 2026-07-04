@@ -662,5 +662,136 @@ void tftRadarUpdate(){
   } else prev_satX=-1;
 }
 
-#endif // DISPLAY_MODULE_H
+// ================= TFT SCREEN 6: CABLE MANAGEMENT =================
+void tftDrawCableScreen(){
+  tft.fillScreen(C_BLACK);
+  tft.fillRect(0,0,240,16,C_HDRBG);tft.fillRect(0,16,240,2,C_CYAN);
+  tft.setTextColor(C_CYAN);tft.setTextSize(1);
+  tft.setCursor(6,4);tft.print("CABLE MANAGEMENT [6/8]");
 
+  // Drawing the mount icon and wire
+  int cx = 120, cy = 150;
+  
+  tft.fillCircle(cx, cy, 30, C_DGRAY);
+  tft.drawCircle(cx, cy, 30, C_MGRAY);
+  
+  float accumAz = azStepper.currentPosition() / STEPS_PER_DEG;
+  float turns = accumAz / 360.0f;
+  float maxTurns = fabsf(turns);
+  
+  // draw spiral
+  float px=cx, py=cy;
+  bool first = true;
+  for(float t=0; t<=maxTurns; t+=0.05f){
+    float angle = (turns > 0 ? t : -t) * 360.0f * PI / 180.0f;
+    float r = 30 + t * 15;
+    float x = cx + r * cosf(angle);
+    float y = cy + r * sinf(angle);
+    if(!first){
+      tft.drawLine(px, py, x, y, C_PRIMARY);
+    } else first = false;
+    px = x; py = y;
+  }
+  
+  tft.fillCircle(px, py, 4, C_CYAN);
+  
+  char buf[40];
+  tft.setTextColor(C_WHITE);
+  tft.setCursor(6, 30);
+  snprintf(buf,sizeof(buf),"WRAP: %.1f TURNS", maxTurns);
+  tft.print(buf);
+  
+  tft.setCursor(6, 42);
+  snprintf(buf,sizeof(buf),"DIR:  %s", turns >= 0 ? "CLOCKWISE" : "COUNTER-CLOCKWISE");
+  tft.print(buf);
+  
+  tft.setCursor(6, 54);
+  const char* action = "IDLE";
+  if(isMoving){
+    if(fabsf(accumAzTarget) < fabsf(accumAz)) action = "UNWINDING";
+    else if(fabsf(accumAzTarget) > fabsf(accumAz)) action = "WINDING";
+    else action = "SLEWING";
+  }
+  snprintf(buf,sizeof(buf),"ACT:  %s", action);
+  tft.print(buf);
+  
+  tft.fillRect(0,300,240,20,C_HDRBG);tft.fillRect(0,298,240,2,C_CYAN);
+  tft.setTextColor(C_CYAN);tft.setCursor(6,307);tft.print("BTN: NEXT SCREEN");
+}
+
+// ================= TFT SCREEN 7: POWER TELEMETRY =================
+void tftDrawPowerScreen(bool fullRedraw){
+  if(fullRedraw) {
+    tft.fillScreen(C_BLACK);
+    tft.fillRect(0,0,240,16,C_HDRBG);tft.fillRect(0,16,240,2,C_CYAN);
+    tft.setTextColor(C_CYAN);tft.setTextSize(1);
+    tft.setCursor(6,4);tft.print("POWER TELEMETRY  [7/8]");
+    tft.fillRect(0,300,240,20,C_HDRBG);tft.fillRect(0,298,240,2,C_CYAN);
+    tft.setTextColor(C_CYAN);tft.setCursor(6,307);tft.print("BTN: NEXT SCREEN");
+  } else {
+    tft.fillRect(0, 18, 240, 275, C_BLACK);
+  }
+
+  char buf[40];
+  tft.setTextColor(C_WHITE);
+  tft.setCursor(6, 22);
+  const char* st = ina226_online ? "ONLINE" : "OFFLINE";
+  snprintf(buf,sizeof(buf),"MOD: %s", st);
+  tft.print(buf);
+
+  if(!ina226_online) {
+    tft.setCursor(6, 40);
+    tft.setTextColor(C_RED);
+    tft.print("INA226 SENSOR NOT DETECTED");
+    return;
+  }
+
+  // Draw 3 graphs
+  int x0 = 5, w = 230;
+  int h = 45;
+  
+  // VOLTAGE (y=35)
+  tft.setTextColor(C_ACCENT); tft.setCursor(x0, 35);
+  snprintf(buf, sizeof(buf), "BUS VOLTAGE: %.2f V", busVoltage_V);
+  tft.print(buf);
+  tft.drawRect(x0, 45, w, h, C_DGRAY);
+  // draw graph
+  float minV = 999, maxV = -999;
+  for(int i=0; i<POWER_HIST_LEN; i++) { if(voltHist[i]<minV) minV=voltHist[i]; if(voltHist[i]>maxV) maxV=voltHist[i]; }
+  if(maxV - minV < 1.0f) { maxV += 0.5f; minV -= 0.5f; }
+  for(int i=0; i<POWER_HIST_LEN-1; i++){
+    int y1 = 45 + h - 1 - (int)((voltHist[i] - minV) / (maxV - minV) * (h - 2));
+    int y2 = 45 + h - 1 - (int)((voltHist[i+1] - minV) / (maxV - minV) * (h - 2));
+    if(y1 < 46) y1 = 46; if(y1 > 45+h-2) y1 = 45+h-2;
+    if(y2 < 46) y2 = 46; if(y2 > 45+h-2) y2 = 45+h-2;
+    tft.drawLine(x0 + i, y1, x0 + i + 1, y2, C_ACCENT);
+  }
+  float minI = 0, maxI = 100;
+  for(int i=0; i<POWER_HIST_LEN; i++) { if(currHist[i]>maxI) maxI=currHist[i]; }
+  for(int i=0; i<POWER_HIST_LEN-1; i++){
+    int y1 = 110 + h - 1 - (int)((currHist[i] - minI) / (maxI - minI) * (h - 2));
+    int y2 = 110 + h - 1 - (int)((currHist[i+1] - minI) / (maxI - minI) * (h - 2));
+    if(y1 < 111) y1 = 111; if(y1 > 110+h-2) y1 = 110+h-2;
+    if(y2 < 111) y2 = 111; if(y2 > 110+h-2) y2 = 110+h-2;
+    tft.drawLine(x0 + i, y1, x0 + i + 1, y2, C_ORANGE);
+  }
+
+  // POWER (y=165)
+  tft.setTextColor(C_PRIMARY); tft.setCursor(x0, 165);
+  snprintf(buf, sizeof(buf), "POWER: %.0f mW", power_mW);
+  tft.print(buf);
+  tft.drawRect(x0, 175, w, h, C_DGRAY);
+  float minP = 0, maxP = 100;
+  for(int i=0; i<POWER_HIST_LEN; i++) { if(pwrHist[i]>maxP) maxP=pwrHist[i]; }
+  for(int i=0; i<POWER_HIST_LEN-1; i++){
+    int y1 = 175 + h - 1 - (int)((pwrHist[i] - minP) / (maxP - minP) * (h - 2));
+    int y2 = 175 + h - 1 - (int)((pwrHist[i+1] - minP) / (maxP - minP) * (h - 2));
+    if(y1 < 176) y1 = 176; if(y1 > 175+h-2) y1 = 175+h-2;
+    if(y2 < 176) y2 = 176; if(y2 > 175+h-2) y2 = 175+h-2;
+    tft.drawLine(x0 + i, y1, x0 + i + 1, y2, C_PRIMARY);
+  }
+  tft.fillRect(0,300,240,20,C_HDRBG);tft.fillRect(0,298,240,2,C_CYAN);
+  tft.setTextColor(C_CYAN);tft.setCursor(6,307);tft.print("BTN: NEXT SCREEN");
+}
+
+#endif // DISPLAY_MODULE_H

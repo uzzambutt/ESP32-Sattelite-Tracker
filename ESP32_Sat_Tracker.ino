@@ -5,7 +5,7 @@
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
-#include <LittleFS.h>
+#include <SD.h>
 #include <Sgp4.h>
 #include <ArduinoJson.h>
 #include <WiFiUdp.h>
@@ -24,6 +24,7 @@
 #include <Wire.h>
 #include "Config.h"
 #include "Celestial_Math.h"
+#include "Power_Module.h"
 
 // -- Kalman filter state (replaces complementary filter) ---------
 // Two independent 2-state Kalman filters, one per axis.
@@ -162,10 +163,6 @@ Sgp4            sat;
 static Sgp4     predSat;
 static Sgp4     schedSat;  // dedicated instance for schedule computation
 
-#if GPS_ENABLED
-HardwareSerial gpsSerial(2);
-#endif
-
 // ================= STATE =================
 char  tleLine1[70]="";
 char  tleLine2[70]="";
@@ -199,6 +196,7 @@ unsigned long   lastDopplerTime=0,lastSGP4Update=0;
 volatile time_t nextAosTime  =0,nextLosTime=0;
 volatile float  nextMaxEl    =0;
 volatile bool   predBusy     =false;
+
 
 struct PassLogEntry{char sat[25];char time[20];float maxEl;};
 PassLogEntry passLog[10];
@@ -241,6 +239,7 @@ struct TLEElements{
   bool  valid=false;
 };
 TLEElements tleElem;
+bool sdMounted = false;
 
 inline int clampX(int x){return x<RADAR_SAFE_LEFT?RADAR_SAFE_LEFT:x>RADAR_SAFE_RIGHT?RADAR_SAFE_RIGHT:x;}
 inline int clampY(int y){return y<RADAR_SAFE_TOP?RADAR_SAFE_TOP:y>RADAR_SAFE_BOT?RADAR_SAFE_BOT:y;}
@@ -686,6 +685,17 @@ String buildTelemetryJson(){
   if(spaceWx.valid) doc["kp"]=spaceWx.kp;
   // TLE age
   doc["tleAge"]=tleElem.valid?tleElem.ageDays:0.0f;
+  
+  // Cable Wrap Status
+  doc["accumAz"]=azStepper.currentPosition()/STEPS_PER_DEG;
+  doc["accumAzTarget"]=accumAzTarget;
+
+  // Power Telemetry
+  doc["inaOnline"]=ina226_online;
+  doc["busVoltage"]=busVoltage_V;
+  doc["currentmA"]=current_mA;
+  doc["powermW"]=power_mW;
+
   // Orbital elements sub-object
   if(tleElem.valid){
     JsonObject el=doc.createNestedObject("tleElem");
@@ -727,6 +737,9 @@ void tftDrawScheduleScreen();
 void tftDrawDriftGraph();
 void tftDrawFootprintScreen();
 void tftDrawWeatherScreen();
+void tftDrawOrbitalScreen();
+void tftDrawCableScreen();
+void tftDrawPowerScreen(bool fullRedraw = true);
 void setupWebServer();
 
 #include "Display_Module.h"
@@ -795,14 +808,73 @@ void setupWebServer(){
       }
     });
 
+  webServer.on("/api/db/update", HTTP_POST, [](AsyncWebServerRequest *r){
+    if(sdMounted) {
+      xTaskCreate([](void* p){
+        HTTPClient http;
+        http.begin("http://celestrak.org/NORAD/elements/active.txt");
+        int httpCode = http.GET();
+        if(httpCode == HTTP_CODE_OK) {
+          File f = SD.open("/active.txt", FILE_WRITE);
+          if(f) { http.writeToStream(&f); f.close(); }
+        }
+        http.end();
+        vTaskDelete(NULL);
+      }, "dlTask", 8192, NULL, 1, NULL);
+      r->send(200, "application/json", "{\"status\":\"started\"}");
+    } else {
+      r->send(500, "application/json", "{\"status\":\"no_sd\"}");
+    }
+  });
+
+  webServer.on("/api/db/search", HTTP_GET, [](AsyncWebServerRequest *r){
+    if(!sdMounted) { r->send(500, "application/json", "[]"); return; }
+    if(!r->hasParam("q")) { r->send(400); return; }
+    String q = r->getParam("q")->value();
+    q.toLowerCase();
+    
+    File f = SD.open("/active.txt", FILE_READ);
+    if(!f) { r->send(500, "application/json", "[]"); return; }
+    
+    String res = "[";
+    bool first = true;
+    int count = 0;
+    char lineBuf[128];
+    while(f.available() && count < 30) {
+      size_t len = f.readBytesUntil('\n', lineBuf, sizeof(lineBuf)-1);
+      lineBuf[len] = '\0';
+      String name = String(lineBuf); name.trim();
+      
+      len = f.readBytesUntil('\n', lineBuf, sizeof(lineBuf)-1);
+      lineBuf[len] = '\0';
+      String l1 = String(lineBuf); l1.trim();
+      
+      len = f.readBytesUntil('\n', lineBuf, sizeof(lineBuf)-1);
+      lineBuf[len] = '\0';
+      String l2 = String(lineBuf); l2.trim();
+      
+      if(name.length() == 0) break;
+      String lowerName = name; lowerName.toLowerCase();
+      if(lowerName.indexOf(q) >= 0) {
+        if(!first) res += ",";
+        first = false;
+        res += "{\"name\":\"" + name + "\",\"line1\":\"" + l1 + "\",\"line2\":\"" + l2 + "\"}";
+        count++;
+      }
+    }
+    f.close();
+    res += "]";
+    r->send(200, "application/json", res);
+  });
+
   webServer.on("/api/tle",HTTP_POST,[](AsyncWebServerRequest *r){r->send(200,"application/json","{\"status\":\"ok\"}");},NULL,
     [](AsyncWebServerRequest *r,uint8_t *data,size_t len,size_t,size_t){
       StaticJsonDocument<512> doc;if(!deserializeJson(doc,String((char*)data,len))){
         String name=doc["name"]|"UNKNOWN",l1=doc["line1"]|"",l2=doc["line2"]|"";
         bool isCelestial = (name=="SUN"||name=="MOON");
         if(isCelestial || (l1.length()>0&&l2.length()>0)){
-          if(!isCelestial) {
-            File f=LittleFS.open("/tle.txt","w");if(f){f.println(name);f.println(l1);f.println(l2);f.close();}
+          if(!isCelestial && sdMounted) {
+            File f=SD.open("/tle.txt", FILE_WRITE);if(f){f.println(name);f.println(l1);f.println(l2);f.close();}
             name.toCharArray(satName,25);l1.toCharArray(tleLine1,70);l2.toCharArray(tleLine2,70);
             sat.site(obsLat,obsLon,obsAlt);sat.init(satName,tleLine1,tleLine2);
             isGeoSat=tleIsGeo();
@@ -894,14 +966,8 @@ void Core0TaskCode(void *pvParameters){
     if(WiFi.status()==WL_CONNECTED&&!isAPMode)if(timeClient.update())ntpSynced=true;
     if(millis()-lastWifiCheck>10000&&!isAPMode){lastWifiCheck=millis();if(WiFi.status()!=WL_CONNECTED)WiFi.reconnect();}
     if(!tcpClient||!tcpClient.connected()){tcpClient=tcpServer.available();if(tcpClient)tcpClient.setNoDelay(true);}
-    if(tcpClient&&tcpClient.available()){tcpClient.setTimeout(5);String cmd=tcpClient.readStringUntil('\n');if(cmd.length()>0){bool ack=false;if(!onboardMode&&!isAPMode)ack=parseEasyComm(cmd);if(!ack)tcpClient.println("OK");}}
+    if(tcpClient&&tcpClient.available()){tcpClient.setTimeout(5);String cmd=tcpClient.readStringUntil('\n');if(cmd.length()>0){if(!onboardMode&&!isAPMode)parseEasyComm(cmd);}}
 
-#if GPS_ENABLED
-    while(gpsSerial.available()){
-      String nmea = gpsSerial.readStringUntil('\n');
-      processNMEA(nmea);
-    }
-#endif
 
     bool passExpired=(nextLosTime>0&&!isGeoSat&&(time_t)timeClient.getEpochTime()>nextLosTime&&millis()-lastPathCalc>10000);
     if((millis()-lastPathCalc>60000||passExpired)&&!isAPMode){calculatePathPrediction();lastPathCalc=millis();}
@@ -935,10 +1001,13 @@ void Core0TaskCode(void *pvParameters){
           case 3:tftDrawFootprintScreen();break;
           case 4:tftDrawWeatherScreen();break;
           case 5:tftDrawOrbitalScreen();break;
+          case 6:tftDrawCableScreen();break;
+          case 7:tftDrawPowerScreen();break;
         }
       }
       if(currentScreen==0){tftUpdateDynamic();tftRadarUpdate();}
       else if(currentScreen==2){tftDrawDriftGraph();}  // drift graph updates live
+      else if(currentScreen==7){tftDrawPowerScreen(false);} // power graph updates live
       lastTft=millis();
     }
     vTaskDelay(pdMS_TO_TICKS(50));
@@ -951,6 +1020,13 @@ void setup(){
   Serial.println("\n====================================");
   Serial.println(" ESP32 Orbital Ops v10.0");
   Serial.println("====================================");
+
+  // Mount SD BEFORE the TFT initializes to prevent SPI collisions that crash the screen to white
+  if(SD.begin(SD_CS)) {
+    sdMounted = true;
+  } else {
+    sdMounted = false;
+  }
   esp_task_wdt_init(30,true);esp_task_wdt_add(NULL);
 
   // Button
@@ -975,10 +1051,6 @@ void setup(){
   tft.setTextColor(C_MGRAY);tft.setCursor(4,terminalY);tft.print("Welcome to Orbital Ops v10.0");
   terminalY+=11;
 
-#if GPS_ENABLED
-  gpsSerial.begin(9600, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
-  printBootLine("GPS module init on UART2",2);
-#endif
 
   printBootLine("Initializing IMU...",2);
   if(mpuBegin()){
@@ -989,9 +1061,19 @@ void setup(){
 #endif
   } else {imuOK=false;printBootLine("IMU NOT FOUND",3);}
 
-  printBootLine("Mounting LittleFS",2);
-  if(!LittleFS.begin(false))LittleFS.begin(true);
-  printBootLine("LittleFS mounted",0);
+  printBootLine("Mounting SD Card...",2);
+  if(!sdMounted) {
+    printBootLine("SD Mount Failed",3);
+  } else {
+    printBootLine("SD Card mounted",0);
+  }
+  
+  printBootLine("Init INA226 Sensor...",2);
+  if(ina226_init()) {
+    printBootLine("INA226 OK",0);
+  } else {
+    printBootLine("INA226 FAIL",3);
+  }
 
   printBootLine("Loading NVRAM prefs",2);
   prefs.begin("sattracker",true);
@@ -1002,8 +1084,8 @@ void setup(){
   maidenheadToLatLon(maidenhead,obsLat,obsLon);sat.site(obsLat,obsLon,obsAlt);
   printBootLine("Prefs: grid "+maidenhead,0);
 
-  if(LittleFS.exists("/tle.txt")){
-    File f=LittleFS.open("/tle.txt","r");
+  if(sdMounted && SD.exists("/tle.txt")){
+    File f=SD.open("/tle.txt", FILE_READ);
     if(f){
       String n=f.readStringUntil('\n');n.trim();n.toCharArray(satName,25);
       String l1=f.readStringUntil('\n');l1.trim();l1.toCharArray(tleLine1,70);
@@ -1146,6 +1228,13 @@ void loop(){
     }
   } else {
     if(millis()-lastLog>10000){Serial.println("[NET] Listening 4533");lastLog=millis();}
+  }
+
+  // 7) INA226 Power Monitor (Must be in loop to avoid I2C collision with IMU)
+  static unsigned long lastInaMs = 0;
+  if(millis() - lastInaMs >= 500) {
+    lastInaMs = millis();
+    ina226_update();
   }
 }
 

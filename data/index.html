@@ -992,76 +992,35 @@ async function loadCatalog() {
   const btn = document.getElementById('loadCatalogBtn');
   const status = document.getElementById('catalogStatus');
   btn.disabled = true;
-  status.textContent = 'Fetching catalog from Celestrak...';
+  status.textContent = 'Commanding ESP32 to download database to SD Card... (Takes ~30 sec)';
   try {
-    const res = await fetch(
-      'https://celestrak.org/SOCRATES/query.php?' +
-      'catalog=active&FORMAT=TLE', { cache: 'no-store' });
-    if (!res.ok) throw new Error('Celestrak fetch failed');
-
-    // Fallback: use the named group TLE format
-    const r2 = await fetch(
-      'https://celestrak.org/SOCRATES/query.php?' +
-      'catalog=active&FORMAT=TLE');
-    throw new Error('try named');
+    const res = await fetch('/api/db/update', { method: 'POST' });
+    if (!res.ok) throw new Error('ESP32 update failed');
+    status.textContent = 'ESP32 Database updated successfully! Type to search.';
+    showToast('Catalog downloaded to SD', 'success');
   } catch(e) {
-    // Use the correct Celestrak TLE URL
-    try {
-      const res = await fetch(
-        'https://celestrak.org/pub/TLE/catalog.txt',
-        { cache: 'no-store' });
-      if (!res.ok) throw new Error('Catalog fetch failed');
-      const text = await res.text();
-      parseTLECatalog(text);
-      status.textContent =
-        `Loaded ${allSats.length} satellites. Type to search.`;
-      renderSatList(allSats.slice(0, 50));
-      showToast('Catalog loaded: ' + allSats.length + ' sats', 'success');
-    } catch(err) {
-      // Fallback to active satellites group
-      try {
-        const res2 = await fetch(
-          'https://celestrak.org/SOCRATES/query.php?catalog=active&FORMAT=TLE');
-        const text2 = await res2.text();
-        parseTLECatalog(text2);
-        status.textContent =
-          `Loaded ${allSats.length} satellites. Type to search.`;
-        renderSatList(allSats.slice(0, 50));
-        showToast('Catalog loaded', 'success');
-      } catch(err2) {
-        status.textContent =
-          'Failed to fetch catalog. Check browser console.';
-        showToast('Catalog fetch failed', 'error');
-      }
-    }
+    status.textContent = 'Failed to update database. Check ESP32 console.';
+    showToast('Database update failed', 'error');
   }
   btn.disabled = false;
 }
 
-function parseTLECatalog(text) {
-  allSats = [];
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-  for (let i = 0; i + 2 < lines.length; i += 3) {
-    const name  = lines[i];
-    const line1 = lines[i + 1];
-    const line2 = lines[i + 2];
-    if (line1.startsWith('1 ') && line2.startsWith('2 ')) {
-      allSats.push({ name: name.trim(), line1, line2,
-                     norad: line1.substring(2, 7).trim() });
-    }
-  }
-}
-
-function searchSat() {
+async function searchSat() {
   const q = document.getElementById('satSearch').value.trim().toLowerCase();
-  if (!q) { renderSatList(allSats.slice(0, 50)); return; }
-  if (allSats.length === 0) {
-    showToast('Load catalog first', 'error'); return;
+  const status = document.getElementById('catalogStatus');
+  if (!q) { renderSatList([]); status.textContent='Type a name and press search'; return; }
+  
+  status.textContent = 'ESP32 searching SD card...';
+  try {
+    const res = await fetch('/api/db/search?q=' + encodeURIComponent(q));
+    if (!res.ok) throw new Error('Search failed');
+    filteredSats = await res.json();
+    renderSatList(filteredSats);
+    status.textContent = filteredSats.length + ' results found on SD card.';
+  } catch(e) {
+    status.textContent = 'Search failed. Did you load the catalog?';
+    showToast('Search failed', 'error');
   }
-  filteredSats = allSats.filter(s => s.name.toLowerCase().includes(q));
-  renderSatList(filteredSats.slice(0, 80));
-  document.getElementById('catalogStatus').textContent =
-    filteredSats.length + ' results';
 }
 
 // Allow pressing Enter to search
@@ -1076,19 +1035,18 @@ function renderSatList(list) {
     return;
   }
   el.innerHTML = list.map((s, i) =>
-    `<div class="sat-item" onclick="selectSat(${allSats.indexOf(s)})">
+    `<div class="sat-item" onclick="selectSat(${i})">
       <span>${s.name}</span>
-      <span class="sat-norad">${s.norad}</span>
+      <span class="sat-norad">${s.line1.substring(2,7).trim()}</span>
     </div>`
   ).join('');
 }
 
 function selectSat(idx) {
-  tleData = allSats[idx];
+  tleData = filteredSats[idx];
   // Highlight selected
   document.querySelectorAll('.sat-item').forEach((el, i) => {
-    el.classList.toggle('selected',
-      el.textContent.trim().startsWith(tleData.name.substring(0, 8)));
+    el.classList.toggle('selected', i === idx);
   });
   document.getElementById('tleBox').innerHTML =
     `<b>${tleData.name}</b><br>${tleData.line1}<br>${tleData.line2}`;

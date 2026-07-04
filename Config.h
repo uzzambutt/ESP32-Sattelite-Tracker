@@ -18,12 +18,10 @@
 
 // ── Button ─────────────────────────────────────────────────────
 #define BTN_PIN     0       // IO0 — BOOT button on most ESP32 devboards
-#define SCREEN_COUNT 6
+#define SCREEN_COUNT 8
 
-// ── Hardware GPS Module (NEO-6M / UART) ────────────────────────
-#define GPS_ENABLED 1
-#define GPS_RX_PIN 16
-#define GPS_TX_PIN 17
+// ── Power Monitor (INA226) ──────────────────────────────────────
+#define INA226_ENABLED 0
 
 // ── Satellite queue ────────────────────────────────────────────
 #define MAX_QUEUED_SATS 8
@@ -63,6 +61,7 @@
 #define TFT_CS    15
 #define TFT_DC     2
 #define TFT_RST    4
+#define SD_CS      33
 #define AZ_STEP   32
 #define AZ_DIR    14
 #define EL_STEP   27

@@ -257,6 +257,28 @@ Press REFRESH to compute
 <div id="qsoLogBody" style="font-family:'Share Tech Mono',monospace;font-size:.75rem;color:#7a7493;max-height:160px;overflow-y:auto">No contacts logged.</div>
 </div>
 
+<div class="grid" style="margin-top:14px">
+<div class="panel"><div class="ph">CABLE MANAGEMENT</div>
+  <div style="display:flex; flex-direction:column; align-items:center;">
+    <canvas id="cableCanvas" width="280" height="200" style="border-radius:12px; background:rgba(0,0,0,0.2); margin-bottom:12px"></canvas>
+    <div class="row" style="width:100%; border:none"><span class="k">AZIMUTH WRAP</span><span class="v" id="wrapStatus">--</span></div>
+    <div class="row" style="width:100%; border:none"><span class="k">ACTION</span><span class="v va" id="wrapAction">--</span></div>
+  </div>
+</div>
+<div class="panel"><div class="ph">POWER & BATTERY</div>
+  <div style="display:flex; justify-content:space-between; margin-bottom:12px; gap:8px">
+     <div class="stat" style="flex:1; padding:8px"><div class="lbl">INA226</div><div class="val" id="inaStatus" style="font-size:1.1rem; color:var(--acc)">--</div></div>
+     <div class="stat" style="flex:1; padding:8px"><div class="lbl">VOLTAGE</div><div class="val" id="inaVolt" style="font-size:1.1rem; color:var(--acc)">--</div></div>
+     <div class="stat" style="flex:1; padding:8px"><div class="lbl">CURRENT</div><div class="val" id="inaCurr" style="font-size:1.1rem; color:var(--org)">--</div></div>
+  </div>
+  <div class="stat" style="width:100%; padding:8px; margin-bottom:12px; text-align:center">
+     <div class="lbl" style="margin-bottom:4px">TOTAL POWER</div>
+     <div class="val" id="inaPwr" style="font-size:1.4rem; color:var(--grn)">--</div>
+  </div>
+  <div class="radwrap"><canvas id="powerCanvas" width="200" height="120"></canvas></div>
+</div>
+</div>
+
 <script>
 let currentAz=0,currentEl=0,targetAz=0,targetEl=0;
 let allTleData=[],tleData=[],satPath=[],isGeo=false,isParked=false;
@@ -278,6 +300,74 @@ async function fetchAstronauts() {
   } catch(e) {
     document.getElementById('astroBody').innerHTML = '<div style="color:var(--red);font-size:0.8rem">API Unreachable</div>';
   }
+}
+
+function drawCableWinding(accumAz) {
+  const cv = document.getElementById('cableCanvas');
+  if(!cv) return;
+  const ctx = cv.getContext('2d');
+  const cx = cv.width/2, cy = cv.height/2;
+  ctx.clearRect(0,0,cv.width,cv.height);
+  
+  ctx.fillStyle = '#1e293b';
+  ctx.beginPath(); ctx.arc(cx, cy, 30, 0, 2*Math.PI); ctx.fill();
+  ctx.strokeStyle = '#334155'; ctx.lineWidth = 4; ctx.stroke();
+  
+  ctx.strokeStyle = '#6366f1'; 
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  
+  let turns = accumAz / 360.0;
+  let maxTurns = Math.abs(turns);
+  
+  let points = [];
+  for(let t=0; t<=maxTurns; t+=0.02) {
+    let angle = (turns > 0 ? t : -t) * 360 * Math.PI / 180;
+    let r = 30 + t * 8; 
+    points.push({x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle)});
+  }
+  
+  if(points.length > 0) {
+    ctx.moveTo(points[0].x, points[0].y);
+    for(let i=1; i<points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+    ctx.stroke();
+    
+    let lastP = points[points.length-1];
+    ctx.beginPath(); ctx.arc(lastP.x, lastP.y, 6, 0, 2*Math.PI);
+    ctx.fillStyle = '#2dd4bf'; ctx.fill();
+  }
+}
+
+let pwrHist = {v:[], i:[], p:[]};
+function drawPowerChart(v, i_mA, p) {
+  pwrHist.v.push(v); pwrHist.i.push(i_mA); pwrHist.p.push(p);
+  if(pwrHist.v.length > 200) { pwrHist.v.shift(); pwrHist.i.shift(); pwrHist.p.shift(); }
+  const cv = document.getElementById('powerCanvas');
+  if(!cv) return;
+  const ctx = cv.getContext('2d');
+  const w = cv.width, h = cv.height;
+  ctx.clearRect(0,0,w,h);
+  
+  const drawLine = (data, color, minDef, maxDef, yOff, hght) => {
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    let max = Math.max(...data, maxDef);
+    let min = Math.min(...data, minDef);
+    if(max - min < 1) { max+=0.5; min-=0.5; }
+    for(let i=0; i<data.length; i++) {
+      let x = i * (w / 200);
+      let y = yOff + hght - ((data[i] - min) / (max - min) * (hght-4)) - 2;
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  };
+  
+  ctx.fillStyle='rgba(255,255,255,0.03)';
+  ctx.fillRect(0,0,w,40); ctx.fillRect(0,40,w,40); ctx.fillRect(0,80,w,40);
+  
+  drawLine(pwrHist.v, '#a855f7', 0, 5, 0, 40);
+  drawLine(pwrHist.i, '#f59e0b', 0, 100, 40, 40);
+  drawLine(pwrHist.p, '#10b981', 0, 100, 80, 40);
 }
 setTimeout(fetchAstronauts, 1000);
 
@@ -332,6 +422,30 @@ async function fetchTelemetry(){
   renderOrbitalElements(d);
   lastSatLat=d.satLat||0;lastSatLon=d.satLon||0;
   drawWorldMap();
+  
+  if(d.accumAz !== undefined) {
+    let turns = (d.accumAz / 360).toFixed(1);
+    document.getElementById('wrapStatus').innerText = Math.abs(turns) + " TURNS " + (d.accumAz >= 0 ? "(CW)" : "(CCW)");
+    let action = "IDLE";
+    if (d.isMoving) {
+       if (Math.abs(d.accumAzTarget) < Math.abs(d.accumAz)) action = "UNWINDING";
+       else if (Math.abs(d.accumAzTarget) > Math.abs(d.accumAz)) action = "WINDING";
+       else action = "SLEWING";
+    }
+    document.getElementById('wrapAction').innerText = action;
+    document.getElementById('wrapAction').className = "v " + (action==="UNWINDING"?"vg":(action==="WINDING"?"vr":"va"));
+    drawCableWinding(d.accumAz);
+  }
+  
+  if(d.inaOnline !== undefined) {
+    document.getElementById('inaStatus').innerText = d.inaOnline ? "ONLINE" : "OFFLINE";
+    document.getElementById('inaStatus').style.color = d.inaOnline ? "var(--acc)" : "var(--red)";
+    document.getElementById('inaVolt').innerText = d.busVoltage.toFixed(2) + "V";
+    document.getElementById('inaCurr').innerText = d.currentmA.toFixed(0) + "mA";
+    document.getElementById('inaPwr').innerText = d.powermW.toFixed(0) + "mW";
+    drawPowerChart(d.busVoltage, d.currentmA, d.powermW);
+  }
+
  }catch(e){
   if(++failCount>3){
    document.getElementById('connLost').style.display='block';

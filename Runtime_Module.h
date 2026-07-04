@@ -1,31 +1,7 @@
 #ifndef RUNTIME_MODULE_H
 #define RUNTIME_MODULE_H
 
-// ================= GPS NMEA PARSER =================
-#if GPS_ENABLED
-void processNMEA(String sentence) {
-  if (sentence.startsWith("$GPGGA") || sentence.startsWith("$GNGGA")) {
-    int p[15], pc = 0, last = 0;
-    while(pc < 14 && (p[pc] = sentence.indexOf(',', last)) != -1) { last = p[pc] + 1; pc++; }
-    if (pc >= 9) {
-       String latStr = sentence.substring(p[1]+1, p[2]);
-       String ns = sentence.substring(p[2]+1, p[3]);
-       String lonStr = sentence.substring(p[3]+1, p[4]);
-       String ew = sentence.substring(p[4]+1, p[5]);
-       
-       if (latStr.length()>4 && lonStr.length()>4) {
-          float rawLat = latStr.toFloat(); int latDeg = rawLat/100;
-          obsLat = latDeg + (rawLat - latDeg*100)/60.0; if(ns=="S") obsLat = -obsLat;
-          float rawLon = lonStr.toFloat(); int lonDeg = rawLon/100;
-          obsLon = lonDeg + (rawLon - lonDeg*100)/60.0; if(ew=="W") obsLon = -obsLon;
-          
-          if (pc >= 10 && p[9] > p[8]) obsAlt = sentence.substring(p[8]+1, p[9]).toFloat();
-          sat.site(obsLat, obsLon, obsAlt);
-       }
-    }
-  }
-}
-#endif
+
 
 // ================= EASYCOMM / HAMLIB =================
 bool parseEasyComm(String cmd){
@@ -43,6 +19,10 @@ bool parseEasyComm(String cmd){
       if(tcpClient)tcpClient.println("RPRT 0");
       return true;
     }
+  }
+  else if(cmd=="S" || cmd=="S "){
+    if(tcpClient)tcpClient.println("RPRT 0");
+    return true;
   }
   else if(cmd.indexOf("AZ")!=-1||cmd.indexOf("az")!=-1){
     int ai=cmd.indexOf("AZ");if(ai==-1)ai=cmd.indexOf("az");
