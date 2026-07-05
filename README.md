@@ -1,7 +1,19 @@
+<div align="center">
+
 # ESP32 Satellite Tracker — Orbital Ops v10.0
 
-**Developer:** Muhammad Uzzam Butt
-**Repository:** https://github.com/uzzambutt/ESP32-Sattelite-Tracker
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![GitHub stars](https://img.shields.io/github/stars/uzzambutt/ESP32-Sattelite-Tracker?style=social)](https://github.com/uzzambutt/ESP32-Sattelite-Tracker/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/uzzambutt/ESP32-Sattelite-Tracker?style=social)](https://github.com/uzzambutt/ESP32-Sattelite-Tracker/network/members)
+[![GitHub issues](https://img.shields.io/github/issues/uzzambutt/ESP32-Sattelite-Tracker)](https://github.com/uzzambutt/ESP32-Sattelite-Tracker/issues)
+[![Open Source Love](https://badges.frapsoft.com/os/v1/open-source.svg?v=103)](https://github.com/ellerbrock/open-source-badges/)
+
+**Developer:** [Muhammad Uzzam Butt](https://github.com/uzzambutt) | **Repository:** [ESP32-Sattelite-Tracker](https://github.com/uzzambutt/ESP32-Sattelite-Tracker)
+
+![PCB Screenshot Placeholder](PCB_Screenshot_Placeholder.png)
+*(Replace PCB_Screenshot_Placeholder.png with your actual PCB screenshot)*
+
+</div>
 
 An ESP32-based automated satellite tracking system that drives a two-axis antenna mount using stepper motors, propagates satellite positions in real time with the SGP4 algorithm, and serves a live web dashboard over WiFi. The system supports a satellite queue, 24-hour pass scheduling, Doppler shift calculation, IMU-assisted elevation correction, weather data, satellite footprint visualization, and full EasyComm II compatibility for use with applications such as Look4Sat.
 

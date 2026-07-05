@@ -3879,6 +3879,113 @@
 			)
 			(embedded_fonts no)
 		)
+		(symbol "Mechanical:MountingHole_Pad"
+			(pin_numbers
+				(hide yes)
+			)
+			(pin_names
+				(offset 1.016)
+				(hide yes)
+			)
+			(exclude_from_sim no)
+			(in_bom no)
+			(on_board yes)
+			(property "Reference" "H"
+				(at 0 6.35 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Value" "MountingHole_Pad"
+				(at 0 4.445 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Footprint" ""
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Datasheet" "~"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Description" "Mounting Hole with connection"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_keywords" "mounting hole"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_fp_filters" "MountingHole*Pad*"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(symbol "MountingHole_Pad_0_1"
+				(circle
+					(center 0 1.27)
+					(radius 1.27)
+					(stroke
+						(width 1.27)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+			)
+			(symbol "MountingHole_Pad_1_1"
+				(pin input line
+					(at 0 -2.54 90)
+					(length 2.54)
+					(name "1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+			)
+			(embedded_fonts no)
+		)
 		(symbol "Regulator_Switching:LM2596S-5"
 			(exclude_from_sim no)
 			(in_bom yes)
@@ -4849,6 +4956,18 @@
 		(uuid "0cc24153-a4b8-457d-b25e-5e59e9991b57")
 	)
 	(junction
+		(at 124.46 92.71)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "1666071a-4f22-4e28-8431-216c58312ab5")
+	)
+	(junction
+		(at 124.46 109.22)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "20dc0fb1-69f2-40b3-b757-6eb8d4cdc822")
+	)
+	(junction
 		(at 54.61 64.77)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -4903,6 +5022,12 @@
 		(uuid "a869788b-f8ff-45d3-b29a-83843c67bf0d")
 	)
 	(junction
+		(at 124.46 101.6)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "d4b21c79-c1f3-408d-9485-b665f0a1d578")
+	)
+	(junction
 		(at 54.61 82.55)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -4931,6 +5056,12 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "e7842bce-9e10-46d0-84db-704b062f7594")
+	)
+	(junction
+		(at 124.46 95.25)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "e85b0d53-43f1-47b9-998a-4fac34f8a443")
 	)
 	(junction
 		(at 161.29 127)
@@ -5066,6 +5197,16 @@
 	)
 	(wire
 		(pts
+			(xy 104.14 92.71) (xy 124.46 92.71)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "11532333-d95a-4e79-b150-7d74d276b98a")
+	)
+	(wire
+		(pts
 			(xy 31.75 62.23) (xy 38.1 62.23)
 		)
 		(stroke
@@ -5196,6 +5337,16 @@
 	)
 	(wire
 		(pts
+			(xy 124.46 109.22) (xy 124.46 113.03)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "2b27cd11-785c-4b22-a23d-edaf493bb9f0")
+	)
+	(wire
+		(pts
 			(xy 92.71 121.92) (xy 101.6 121.92)
 		)
 		(stroke
@@ -5213,6 +5364,16 @@
 			(type default)
 		)
 		(uuid "2f157bc5-75a3-4a12-a378-89b023e6c691")
+	)
+	(wire
+		(pts
+			(xy 124.46 85.09) (xy 124.46 92.71)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "2f1b8a21-39df-4bd6-8cfc-a1d149bc0714")
 	)
 	(wire
 		(pts
@@ -5283,6 +5444,16 @@
 			(type default)
 		)
 		(uuid "3cd57885-cb5f-4a8d-819a-45c2a3148b84")
+	)
+	(wire
+		(pts
+			(xy 31.75 46.99) (xy 31.75 49.53)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "3df8b1f5-468a-4e78-826a-94b119a7ca1c")
 	)
 	(wire
 		(pts
@@ -5526,6 +5697,16 @@
 	)
 	(wire
 		(pts
+			(xy 124.46 92.71) (xy 124.46 95.25)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "6882df74-2e77-48b1-8d42-ed52e1edc6d4")
+	)
+	(wire
+		(pts
 			(xy 161.29 124.46) (xy 165.1 124.46)
 		)
 		(stroke
@@ -5543,6 +5724,16 @@
 			(type default)
 		)
 		(uuid "6a36bf73-cd0e-49bc-959c-18735a93ee66")
+	)
+	(wire
+		(pts
+			(xy 116.84 85.09) (xy 124.46 85.09)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "6a4cb23b-39c0-4ae1-93b8-7ed4c95e062f")
 	)
 	(wire
 		(pts
@@ -5623,6 +5814,26 @@
 			(type default)
 		)
 		(uuid "7a30ed78-9085-448d-9e7f-26cfa91f0a6e")
+	)
+	(wire
+		(pts
+			(xy 116.84 109.22) (xy 124.46 109.22)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "7bd04772-d806-45cd-a199-88e5640eb876")
+	)
+	(wire
+		(pts
+			(xy 105.41 101.6) (xy 124.46 101.6)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "7d19063d-3daf-45cd-83ad-4a09f93e2a76")
 	)
 	(wire
 		(pts
@@ -5956,6 +6167,16 @@
 	)
 	(wire
 		(pts
+			(xy 124.46 95.25) (xy 124.46 101.6)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "c212fd92-d1c6-4897-9385-b5e77e3489c5")
+	)
+	(wire
+		(pts
 			(xy 133.35 60.96) (xy 133.35 44.45)
 		)
 		(stroke
@@ -6216,6 +6437,16 @@
 	)
 	(wire
 		(pts
+			(xy 124.46 109.22) (xy 124.46 101.6)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "f51fec98-7c25-46fc-91ec-b983f1c17f29")
+	)
+	(wire
+		(pts
 			(xy 190.5 34.29) (xy 195.58 34.29)
 		)
 		(stroke
@@ -6353,18 +6584,6 @@
 			(justify left bottom)
 		)
 		(uuid "1ba34214-7ef6-46db-bcfb-5e04eed29665")
-	)
-	(label "3V3"
-		(at 31.75 49.53 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-				(thickness 0.254)
-				(bold yes)
-			)
-			(justify left bottom)
-		)
-		(uuid "230ee02d-da15-4372-ab81-45256b3f8066")
 	)
 	(label "SD0"
 		(at 74.93 92.71 0)
@@ -7756,6 +7975,139 @@
 		)
 	)
 	(symbol
+		(lib_id "power:+3V3")
+		(at 31.75 46.99 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "406d7663-d074-4945-bff2-609b58711af8")
+		(property "Reference" "#PWR029"
+			(at 31.75 50.8 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "+3V3"
+			(at 31.75 41.91 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 31.75 46.99 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 31.75 46.99 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"+3V3\""
+			(at 31.75 46.99 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "8c73acfa-2518-4ef4-8ab2-eb11045ad844")
+		)
+		(instances
+			(project ""
+				(path "/32988a15-4770-44e4-947e-567ab63aff84"
+					(reference "#PWR029")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 124.46 95.25 90)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "42364d0a-3706-45e0-bf70-a03bf6baf948")
+		(property "Reference" "#PWR030"
+			(at 130.81 95.25 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 128.27 95.2499 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Footprint" ""
+			(at 124.46 95.25 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 124.46 95.25 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 124.46 95.25 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "4d74a5e6-ee94-424b-8d49-f7a1e24b01f9")
+		)
+		(instances
+			(project "ESP32SATTRACKER"
+				(path "/32988a15-4770-44e4-947e-567ab63aff84"
+					(reference "#PWR030")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "power:GND")
 		(at 101.6 121.92 90)
 		(unit 1)
@@ -8240,6 +8592,140 @@
 			(project ""
 				(path "/32988a15-4770-44e4-947e-567ab63aff84"
 					(reference "D1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Mechanical:MountingHole_Pad")
+		(at 105.41 99.06 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom no)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "7cabd27b-0d59-421f-988b-e43f0f60df0e")
+		(property "Reference" "H2"
+			(at 107.95 96.5199 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "MountingHole_Pad"
+			(at 107.95 99.0599 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "MountingHole:MountingHole_2.2mm_M2_Pad"
+			(at 105.41 99.06 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 105.41 99.06 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Mounting Hole with connection"
+			(at 105.41 99.06 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "d70a265a-4032-4f7d-9bef-58f51f13f6bd")
+		)
+		(instances
+			(project "ESP32SATTRACKER"
+				(path "/32988a15-4770-44e4-947e-567ab63aff84"
+					(reference "H2")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Mechanical:MountingHole_Pad")
+		(at 116.84 106.68 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom no)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "7f3378ac-d6b3-49ef-b4f0-c26a1c9c24a5")
+		(property "Reference" "H4"
+			(at 119.38 104.1399 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "MountingHole_Pad"
+			(at 119.38 106.6799 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "MountingHole:MountingHole_2.2mm_M2_Pad"
+			(at 116.84 106.68 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 116.84 106.68 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Mounting Hole with connection"
+			(at 116.84 106.68 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "3b6fd685-f5c5-4820-9e19-e683bf5f7bcb")
+		)
+		(instances
+			(project "ESP32SATTRACKER"
+				(path "/32988a15-4770-44e4-947e-567ab63aff84"
+					(reference "H4")
 					(unit 1)
 				)
 			)
@@ -8947,6 +9433,73 @@
 			(project ""
 				(path "/32988a15-4770-44e4-947e-567ab63aff84"
 					(reference "#PWR07")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Mechanical:MountingHole_Pad")
+		(at 104.14 90.17 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom no)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "aef2a24d-c893-430e-8043-3e6bb5ae849d")
+		(property "Reference" "H1"
+			(at 106.68 87.6299 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "MountingHole_Pad"
+			(at 106.68 90.1699 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "MountingHole:MountingHole_2.2mm_M2_Pad"
+			(at 104.14 90.17 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 104.14 90.17 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Mounting Hole with connection"
+			(at 104.14 90.17 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "67f5f9fe-3d1f-49fe-b6ef-95d70efcd493")
+		)
+		(instances
+			(project ""
+				(path "/32988a15-4770-44e4-947e-567ab63aff84"
+					(reference "H1")
 					(unit 1)
 				)
 			)
@@ -10093,6 +10646,73 @@
 		)
 	)
 	(symbol
+		(lib_id "Mechanical:MountingHole_Pad")
+		(at 116.84 82.55 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom no)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "e394e603-fed7-463a-9ab2-6eb62b503e8b")
+		(property "Reference" "H3"
+			(at 119.38 80.0099 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "MountingHole_Pad"
+			(at 119.38 82.5499 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "MountingHole:MountingHole_2.2mm_M2_Pad"
+			(at 116.84 82.55 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 116.84 82.55 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Mounting Hole with connection"
+			(at 116.84 82.55 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "3a7230ab-99c7-49eb-9aa6-398c9a0dff9d")
+		)
+		(instances
+			(project "ESP32SATTRACKER"
+				(path "/32988a15-4770-44e4-947e-567ab63aff84"
+					(reference "H3")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Driver_Motor:Pololu_Breakout_A4988")
 		(at 175.26 116.84 0)
 		(unit 1)
@@ -10334,6 +10954,72 @@
 			(project ""
 				(path "/32988a15-4770-44e4-947e-567ab63aff84"
 					(reference "#PWR026")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Mechanical:MountingHole_Pad")
+		(at 124.46 115.57 180)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom no)
+		(on_board yes)
+		(dnp no)
+		(uuid "feeced30-c8d6-458f-8bd9-384e311e276b")
+		(property "Reference" "H5"
+			(at 127 115.5699 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Value" "MountingHole_Pad"
+			(at 120.396 122.936 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Footprint" "MountingHole:MountingHole_2.2mm_M2_Pad"
+			(at 124.46 115.57 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 124.46 115.57 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Mounting Hole with connection"
+			(at 124.46 115.57 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "e68fe9b8-bb07-4325-b6a1-3a7e7e099e41")
+		)
+		(instances
+			(project "ESP32SATTRACKER"
+				(path "/32988a15-4770-44e4-947e-567ab63aff84"
+					(reference "H5")
 					(unit 1)
 				)
 			)
