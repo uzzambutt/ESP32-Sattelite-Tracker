@@ -7016,7 +7016,7 @@
 		(on_board yes)
 		(dnp no)
 		(uuid "053e0e42-c356-4ec7-b8ef-7cd92fd64493")
-		(property "Reference" "220uF"
+		(property "Reference" "220uF1"
 			(at 122.936 174.498 0)
 			(effects
 				(font
@@ -7034,7 +7034,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Capacitor_THT:CP_Radial_D8.0mm_P3.50mm"
 			(at 120.3452 177.8 0)
 			(effects
 				(font
@@ -7070,7 +7070,7 @@
 		(instances
 			(project "ESP32SATTRACKER"
 				(path "/32988a15-4770-44e4-947e-567ab63aff84"
-					(reference "220uF")
+					(reference "220uF1")
 					(unit 1)
 				)
 			)
@@ -7177,7 +7177,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Capacitor_THT:CP_Radial_D8.0mm_P3.50mm"
 			(at 198.12 94.2848 0)
 			(effects
 				(font
@@ -7831,7 +7831,7 @@
 		(on_board yes)
 		(dnp no)
 		(uuid "49a2a660-a48e-4a3d-8020-7ccac6e0b130")
-		(property "Reference" "680uF"
+		(property "Reference" "680uF1"
 			(at 50.546 173.228 0)
 			(effects
 				(font
@@ -7849,7 +7849,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Capacitor_THT:CP_Radial_D10.0mm_P5.00mm"
 			(at 47.9552 176.53 0)
 			(effects
 				(font
@@ -7885,7 +7885,7 @@
 		(instances
 			(project ""
 				(path "/32988a15-4770-44e4-947e-567ab63aff84"
-					(reference "680uF")
+					(reference "680uF1")
 					(unit 1)
 				)
 			)
@@ -7916,7 +7916,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical"
 			(at 132.08 24.13 0)
 			(effects
 				(font
@@ -8133,7 +8133,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Inductor_SMD:L_12x12mm_H8mm"
 			(at 107.95 170.18 0)
 			(effects
 				(font
@@ -8203,7 +8203,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Diode_THT:D_DO-201AD_P15.24mm_Horizontal"
 			(at 92.71 173.99 0)
 			(effects
 				(font
@@ -8271,7 +8271,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_1x05_P2.54mm_Vertical"
 			(at 87.63 124.46 0)
 			(effects
 				(font
@@ -8676,7 +8676,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_1x14_P2.54mm_Vertical"
 			(at 133.35 55.88 0)
 			(effects
 				(font
@@ -9673,7 +9673,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Capacitor_THT:CP_Radial_D8.0mm_P3.50mm"
 			(at 267.97 93.0148 0)
 			(effects
 				(font
@@ -9743,7 +9743,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Package_DIP:DIP-20_W7.62mm"
 			(at 208.28 46.99 0)
 			(effects
 				(font
