@@ -7034,7 +7034,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_THT:CP_Radial_D8.0mm_P3.50mm"
+		(property "Footprint" "Capacitor_THT:CP_Axial_L11.0mm_D6.0mm_P18.00mm_Horizontal"
 			(at 120.3452 177.8 0)
 			(effects
 				(font
@@ -7177,7 +7177,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Capacitor_THT:CP_Radial_D8.0mm_P3.50mm"
+		(property "Footprint" "Capacitor_THT:CP_Axial_L11.0mm_D6.0mm_P18.00mm_Horizontal"
 			(at 198.12 94.2848 0)
 			(effects
 				(font
@@ -7849,7 +7849,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_THT:CP_Radial_D10.0mm_P5.00mm"
+		(property "Footprint" "Capacitor_THT:CP_Axial_L18.0mm_D10.0mm_P25.00mm_Horizontal"
 			(at 47.9552 176.53 0)
 			(effects
 				(font
@@ -9673,7 +9673,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Capacitor_THT:CP_Radial_D8.0mm_P3.50mm"
+		(property "Footprint" "Capacitor_THT:CP_Axial_L11.0mm_D6.0mm_P18.00mm_Horizontal"
 			(at 267.97 93.0148 0)
 			(effects
 				(font
