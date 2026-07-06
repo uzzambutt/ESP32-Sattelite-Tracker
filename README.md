@@ -8,10 +8,10 @@
 [![GitHub issues](https://img.shields.io/github/issues/uzzambutt/ESP32-Sattelite-Tracker)](https://github.com/uzzambutt/ESP32-Sattelite-Tracker/issues)
 [![Open Source Love](https://badges.frapsoft.com/os/v1/open-source.svg?v=103)](https://github.com/ellerbrock/open-source-badges/)
 
-**Developer:** [Muhammad Uzzam Butt](https://github.com/uzzambutt) | **Repository:** [ESP32-Sattelite-Tracker](https://github.com/uzzambutt/ESP32-Sattelite-Tracker)
+**Designer:** [Muhammad Uzzam Butt](https://github.com/uzzambutt) // Made for Offtrack YSWS
 
 ![PCB Screenshot Placeholder](PCB_Screenshot_Placeholder.png)
-*(Replace PCB_Screenshot_Placeholder.png with your actual PCB screenshot)*
+*PCB screenshot, Uses SGP4 to calculate orbital sattelite mechanics natively.*
 
 </div>
 
